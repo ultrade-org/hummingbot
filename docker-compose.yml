@@ -1,0 +1,56 @@
+version: '3.9'
+
+services:
+  hummingbot:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    tty: true
+    stdin_open: true
+    container_name: hummingbot
+    # environment:
+      # - CERTS_FOLDER=/home/hummingbot/.hummingbot-gateway/certs
+      # - GATEWAY_CONF_FOLDER=/gateway_conf
+      # - GATEWAY_LOGS_FOLDER=/logs
+      # - GATEWAY_CACERT="/home/hummingbot/.hummingbot-gateway/certs/ca_cert.pem"
+      # - GATEWAY_CERT="/home/hummingbot/.hummingbot-gateway/certs/client_cert.pem"
+      # - GATEWAY_KEY="/home/hummingbot/.hummingbot-gateway/certs/client_key.pem"    
+    volumes:
+      - ./conf:/conf
+      - ./logs:/logs
+      - ./data:/data
+      - ./pmm_scripts:/pmm_scripts
+      - ./scripts:/scripts
+      # - ./gateway_conf:/gateway_conf
+      # - ./gateway_certs:/home/hummingbot/.hummingbot-gateway/certs
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"       
+
+  # gateway:
+  #   platform: linux/amd64
+  #   build:
+  #     context: _hummingbot
+  #     dockerfile: ../DockerfileGateway
+  #   container_name: gateway
+  #   # environment:
+  #   #   - CERTS_FOLDER=/home/hummingbot/.hummingbot-gateway/certs
+  #   #   - GATEWAY_CONF_FOLDER=/gateway_conf
+  #   #   - GATEWAY_LOGS_FOLDER=/logs
+  #     # - CONFIG_FILE_NAME=ascendex-usdt.yml
+  #     # - CONFIG_PASSWORD=${CONFIG_PASSWORD}
+    
+  #   ports:
+  #     - 15000:5000
+  #     - 18081:8080
+  #     - 9251:9251
+  #   volumes:
+  #     - ./_hummingbot/gateway/src:/usr/src/app/src
+  #     - ./config/gateway_conf:/usr/src/app/conf
+  #     - ./config/gateway_certs:/usr/src/app/certs
+  #   logging:
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "5"       
