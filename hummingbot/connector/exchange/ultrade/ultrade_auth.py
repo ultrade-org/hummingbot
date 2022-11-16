@@ -1,9 +1,6 @@
-import hashlib
-import hmac
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Optional
-from urllib.parse import urlencode
+from typing import Dict
 
 from hummingbot.connector.time_synchronizer import TimeSynchronizer
 from hummingbot.core.web_assistant.auth import AuthBase
@@ -34,34 +31,6 @@ class UltradeAuth(AuthBase):
         functionality
         """
         return request  # pass-through
-
-    def add_auth_to_params(self,
-                           params: Optional[Dict[str, Any]]):
-        timestamp = int(self.time_provider.time() * 1e3)
-        request_params = params or {}
-        request_params["timestamp"] = timestamp
-        request_params = self.keysort(request_params)
-        return request_params
-
-    def _generate_signature(self, params: Dict[str, Any]) -> str:
-        encoded_params_str = urlencode(params)
-        digest = hmac.new(self.wallet_address.encode("utf8"), encoded_params_str.encode("utf8"), hashlib.sha256).hexdigest()
-        return digest
-
-    def generate_ws_authentication_message(self):
-        """
-        Generates the authentication message to start receiving messages from
-        the 3 private ws channels
-        """
-        expires = int((self.time_provider.time() + 10) * 1e3)
-        _val = f'GET/realtime{expires}'
-        signature = hmac.new(self.wallet_address.encode("utf8"),
-                             _val.encode("utf8"), hashlib.sha256).hexdigest()
-        auth_message = {
-            "op": "auth",
-            "args": [self.wallet_address, expires, signature]
-        }
-        return auth_message
 
     def _time(self):
         return time.time()
