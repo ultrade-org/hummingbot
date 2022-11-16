@@ -15,13 +15,13 @@ REST_URLS = {"acc": "https://indexer.testnet.algoexplorerapi.io",
 WSS_V1_PUBLIC_URL = {"dev": "wss://testnet-ws.ultradedev.net/socket.io/?EIO=4&transport=websocket"}
 WSS_PRIVATE_URL = {"dev": "wss://testnet-ws.ultradedev.net/socket.io/?EIO=4&transport=websocket"}
 
-WS_HEARTBEAT_TIME_INTERVAL = 30
+WS_HEARTBEAT_TIME_INTERVAL = 25000
 
 PUBLIC_API_VERSION = "/v2"
 PRIVATE_API_VERSION = "v2"
 
 # Websocket event types
-DIFF_EVENT_TYPE = "diffDepth"
+DIFF_EVENT_TYPE = "allStat"
 TRADE_EVENT_TYPE = "trade"
 SNAPSHOT_EVENT_TYPE = "depth"
 
@@ -45,6 +45,8 @@ PAIR_PATH_URL = "/trading/trade/pair-list"
 SERVER_TIME_PATH_URL = '/system/time'
 EXCHANGE_INFO_PATH_URL = "/trading/trade/pair-list"
 SNAPSHOT_PATH_URL = "/market/depth"
+
+GLOWL_DECIMAL = 4
 
 # Order States
 ORDER_STATE = {
