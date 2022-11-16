@@ -4,6 +4,8 @@ import logging
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, AsyncIterable, Dict, List, Optional
 
+from algosdk.abi.byte_type import ByteType
+from algosdk.abi.uint_type import UintType
 from algosdk.encoding import encode_address
 
 import hummingbot.connector.exchange.ultrade.ultrade_constants as CONSTANTS
@@ -88,6 +90,7 @@ class UltradeExchange(ExchangeBase):
         self._user_stream_event_listener_task = None
         self._trading_rules_polling_task = None
         self._last_poll_timestamp = 0
+        self.order_byte_size = 27
         self._order_tracker: ClientOrderTracker = ClientOrderTracker(connector=self)
 
     @classmethod
@@ -99,10 +102,10 @@ class UltradeExchange(ExchangeBase):
 
     @property
     def name(self) -> str:
-        if self._domain == "bybit_main":
-            return "bybit"
+        if self._domain == "dev":
+            return "dev"
         else:
-            return f"bybit_{self._domain}"
+            return f"{self._domain}"
 
     @property
     def order_books(self) -> Dict[str, OrderBook]:
@@ -172,6 +175,7 @@ class UltradeExchange(ExchangeBase):
         - The background task to process the events received through the user stream tracker (websocket connection)
         """
         self._order_book_tracker.start()
+        print('START ')
         self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
         if self._trading_required:
             self._status_polling_task = safe_ensure_future(self._status_polling_loop())
@@ -293,7 +297,9 @@ class UltradeExchange(ExchangeBase):
         :param trading_pair: the trading pair to check for market conditions
         :param price: the starting point price
         """
-        trading_rule = self._trading_rules[trading_pair]
+        print('get_order_price_quantum trading_pair ', trading_pair)
+        print('get_order_price_quantum trading_rules ', self._trading_rules)
+        trading_rule = self._trading_rules[trading_pair.lower()]
         return trading_rule.min_price_increment
 
     def get_order_size_quantum(self, trading_pair: str, order_size: Decimal) -> Decimal:
@@ -303,7 +309,8 @@ class UltradeExchange(ExchangeBase):
         :param trading_pair: the trading pair to check for market conditions
         :param order_size: the starting point order price
         """
-        trading_rule = self._trading_rules[trading_pair]
+        trading_rule = self._trading_rules[trading_pair.lower()]
+        print('get_order_size_quantum ', trading_rule)
         return trading_rule.min_base_amount_increment
 
     def quantize_order_amount(self, trading_pair: str, amount: Decimal, price: Decimal = s_decimal_0) -> Decimal:
@@ -314,7 +321,7 @@ class UltradeExchange(ExchangeBase):
         :param price: the intended price for the order
         :return: the quantized order amount after applying the trading rules
         """
-        trading_rule = self._trading_rules[trading_pair]
+        trading_rule = self._trading_rules[trading_pair.lower()]
         quantized_amount: Decimal = super().quantize_order_amount(trading_pair, amount)
 
         # Check against min_order_size and min_notional_size. If not passing either check, return 0.
@@ -609,7 +616,7 @@ class UltradeExchange(ExchangeBase):
                 raise
             except Exception:
                 self.logger().network("Unexpected error while fetching account updates.", exc_info=True,
-                                      app_warning_msg="Could not fetch account updates from Bybit. "
+                                      app_warning_msg="Could not fetch account updates from Ultrade. "
                                                       "Check API key and network connection.")
                 await self._sleep(0.5)
 
@@ -695,17 +702,13 @@ class UltradeExchange(ExchangeBase):
                     throttler=self._throttler,
                     time_synchronizer=self._time_synchronizer)
 
-                min_order_size = rule.get("minTradeQuantity")
-                min_price_increment = rule.get("minPricePrecision")
-                min_base_amount_increment = rule.get("basePrecision")
-                min_notional_size = rule.get("minTradeAmount")
-
+                min_order_size = rule.get("min_order_size")
+                min_price_increment = rule.get("min_price_increment")
+                # TODO check comment atributes
                 retval.append(
                     TradingRule(trading_pair,
                                 min_order_size=Decimal(min_order_size),
-                                min_price_increment=Decimal(min_price_increment),
-                                min_base_amount_increment=Decimal(min_base_amount_increment),
-                                min_notional_size=Decimal(min_notional_size)))
+                                min_price_increment=Decimal(min_price_increment)))
 
             except Exception:
                 self.logger().exception(f"Error parsing the trading pair rule {rule.get('name')}. Skipping.")
@@ -717,7 +720,9 @@ class UltradeExchange(ExchangeBase):
         stream data source. It keeps reading events from the queue until the task is interrupted.
         The events received are balance updates, order updates and trade events.
         """
+        print('self._iter_user_event_queue() ', self._iter_user_event_queue())
         async for event_message in self._iter_user_event_queue():
+            print('event_message ', event_message)
             try:
                 event_type = event_message.get("e")
                 if event_type == "executionReport":
@@ -776,6 +781,7 @@ class UltradeExchange(ExchangeBase):
         current_tick = self.current_timestamp / self.UPDATE_ORDER_STATUS_MIN_INTERVAL
 
         tracked_orders: List[InFlightOrder] = list(self.in_flight_orders.values())
+        print('tracked_orders ', tracked_orders)
         if current_tick > last_tick and len(tracked_orders) > 0:
 
             tasks = [self._api_request(
@@ -825,8 +831,8 @@ class UltradeExchange(ExchangeBase):
                 await asyncio.sleep(1.0)
 
     async def _update_balances(self):
-        # local_asset_names = set(self._account_balances.keys())
-        # remote_asset_names = set()
+        local_asset_names = set(self._account_balances.keys())
+        remote_asset_names = set()
 
         account_info = await self._api_request(
             method=RESTMethod.GET,
@@ -837,21 +843,21 @@ class UltradeExchange(ExchangeBase):
 
         pairs = await self._get_pairs()
 
-        self.account_info(account_info, pairs)
+        balances = self.account_info(account_info, pairs)
 
-        # balances = account_info["balances"]
-        # for balance_entry in balances:
-        #     asset_name = balance_entry["coin"]
-        #     free_balance = Decimal(balance_entry["free"])
-        #     total_balance = Decimal(balance_entry["total"])
-        #     self._account_available_balances[asset_name] = free_balance
-        #     self._account_balances[asset_name] = total_balance
-        #     remote_asset_names.add(asset_name)
+        for balance_entry in balances:
+            print('balance_entry ', balance_entry)
+            base_currency = balance_entry['base_currency']
+            base_available = balance_entry['base_available']
+            price_currency = balance_entry['price_currency']
+            price_available = balance_entry['price_available']
+            self._account_balances[base_currency] = base_available
+            self._account_balances[price_currency] = price_available
+            remote_asset_names.update(base_currency, price_currency)
 
-        # asset_names_to_remove = local_asset_names.difference(remote_asset_names)
-        # for asset_name in asset_names_to_remove:
-        #     del self._account_available_balances[asset_name]
-        #     del self._account_balances[asset_name]
+        asset_names_to_remove = local_asset_names.difference(remote_asset_names)
+        for asset_name in asset_names_to_remove:
+            del self._account_balances[asset_name]
 
     async def _get_pairs(self):
         pair_req_body = {'address': self._auth.wallet_address}
@@ -865,29 +871,30 @@ class UltradeExchange(ExchangeBase):
         return pairs_info['data']
 
     def account_info(self, account_info: Dict, pairs: Dict):
+        print('pairs_info ', pairs)
         user_account = account_info['account']
         min_algo_balance = self.amount_value_format(user_account['min-balance'], 6)
         print('min_algo_balance: ', min_algo_balance)
-        # balance = []
+        balances = []
         if 'apps-local-state' in user_account:
             local_state = user_account['apps-local-state']
             local_state = [state for state in local_state if state['deleted'] is False]
 
             if local_state and len(local_state) > 0:
                 for state in local_state:
-                    pair = next(p for p in pairs if p['application_id'] == state['id'])
+                    pair = next((p for p in pairs if p['application_id'] == state['id']))
                     if pair:
                         balance_data = {
                             'address': self._auth.wallet_address,
                             'round': account_info['current-round'],
-                            'minAlgoBalance': min_algo_balance,
-                            'baseLocked': "0",
-                            'baseAvailable': "0",
-                            'priceLocked': "0",
-                            'priceAvailable': "0",
+                            'min_algo_balance': min_algo_balance,
+                            'base_locked': "0",
+                            'base_available': "0",
+                            'price_locked': "0",
+                            'price_available': "0",
                             'pair_name': pair['pair_key'] if pair else '',
-                            'base_currency': pair['base_currency'] if pair else "",
-                            'price_currency': pair['price_currency'] if pair else "",
+                            'base_currency': pair['base_currency'].upper() if pair else "",
+                            'price_currency': pair['price_currency'].upper() if pair else "",
                             'base_decimal': pair['base_decimal'] if pair else 6,
                             'price_decimal': pair['price_decimal'] if pair else 6,
                             'min_size_increment': pair['min_size_increment'] if pair else 1000000,
@@ -895,90 +902,124 @@ class UltradeExchange(ExchangeBase):
                             'orders': [],
                             'application_id': state['id']
                         }
-                        balancesKey = next(el for el in state['key-value'] if el['key'] == 'YWNjb3VudEluZm8=')
-                        ordersKey = next(el for el in state['key-value'] if el['key'] != 'YWNjb3VudEluZm8=')
-                        print('balancesKey ', balancesKey)
-                        print('ordersKey ', ordersKey)
-                        print(balance_data)
-                        # decodedBalances =
-                        # self.get_account_info_form_local_storage(balancesKey['value']['bytes'])
+                        balances_key = next(el for el in state['key-value'] if el['key'] == 'YWNjb3VudEluZm8=')
+                        orders_key = next(el for el in state['key-value'] if el['key'] != 'YWNjb3VudEluZm8=')
+                        print('balancesKey ', balances_key)
+                        print('ordersKey type ', orders_key)
+                        decoded_balances = self.get_account_info_form_local_storage(balances_key['value']['bytes'])
+                        print("decoded_balances ", decoded_balances)
+                        # decoded_orders = self.print_unpacked_local_data(orders_key['value']['bytes'])
+
+                        balance_data['base_locked'] = self.amount_formate(decoded_balances['baseCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                        balance_data['base_available'] = self.amount_formate(decoded_balances['baseCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                        balance_data['price_locked'] = self.amount_formate(decoded_balances['priceCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                        balance_data['price_available'] = self.amount_formate(decoded_balances['priceCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+
+                        balances.append(balance_data)
+            return balances
 
         else:
             print('FALSE')
 
     def amount_value_format(self, amount, decimal):
-        print('ammount: ', amount, ' qqq ', amount / 10)
         if amount > 0:
-            return round(amount / 10 ** decimal, decimal)
+            return Decimal(format(amount / 10 ** decimal, f'.{decimal}f'))
+        return 0
 
+    def amount_formate(self, amount, decimal, toFixDecimal):
+        if amount > 0:
+            return Decimal(format(amount / 10 ** decimal, f'.{toFixDecimal}f'))
         return 0
 
     def get_account_info_form_local_storage(self, local_state):
-        print('local_state: ', local_state)
-        uint_array = base64.b64decode(local_state)
-        print('uint_array ', uint_array)
-        self.unpack_data(uint_array, {
-            "WLFeeWallet": {
-                'type': "address",
-            },
+        uint_array = bytearray(base64.b64decode(local_state))
+        return self.unpack_data(uint_array, {
             "priceCoin_locked": {
-                'type': "uint",
+                "type": "uint",
             },
             "priceCoin_available": {
-                'type': "uint",
+                "type": "uint",
             },
             "baseCoin_locked": {
-                'type': "uint",
+                "type": "uint",
             },
             "baseCoin_available": {
-                'type': "uint",
+                "type": "uint",
+            },
+            "WLFeeWallet": {
+                "type": "address",
             },
             "WLFeeShare": {
-                'type': "uint",
+                "type": "uint",
             },
             "WLCustomFee": {
-                'type': "uint",
+                "type": "uint",
             },
             "slotMap": {
-                'type': "uint",
+                "type": "uint",
             },
         })
 
     def unpack_data(self, data, format):
         result = {}
-        print('Data ', data)
         index = 0
-        for name, type in format.items():
+        for name, key in format.items():
             if index >= len(data):
                 raise ValueError('Array index out of bounds')
 
             value = ''
-            if type['type'] == 'address':
-                print('address ')
+            if key['type'] == 'address':
                 check = data[index:index + 32]
                 print('check ', check)
                 value = encode_address(check)
                 index += 32
-            elif type['type'] == 'bytes':
-                print('bytes ')
-                value = data[index: index + type.size]
-                # value = decode_address(value);
-                index += type.size
-            elif type['type'] == 'uint':
-                print('uint ', data[index: index + 8])
-                # value = decode_address(data[index : index + 8]);
+            elif key['type'] == 'bytes':
+                value = ByteType().decode(data[index: index + key['size']])
+                index += key['size']
+            elif key['type'] == 'uint':
+                value = UintType(64).decode(data[index: index + 8])
                 index += 8
-            elif type['type'] == 'string':
-                print('string ')
-                value = self.decode_string(data[index: index + type.size])
-                index += type.size
-            result.update(name, value)
-
+            elif key['type'] == 'string':
+                value = self.decode_string(data[index: index + key['size']])
+                index += key['size']
+            result[name] = value
         return result
 
     def decode_string(self, value):
-        print('Value: ', value)
-        return value.encode('utf-8')
+        return value.decode('utf-8')
+
+    # def print_unpacked_local_data(self, local_state):
+    #     print('--------------------------------------')
+    #     uint_array = base64.b64encode(local_state.encode('utf-8'))
+    #     unpacked_data = []
+    #     num = 0
+    #     while num < 4:
+    #         data = self.unpack_data(uint_array[self.order_byte_size * num: self.order_byte_size * (num + 1)], {
+    #            "orderID": {
+    #                 "type": "uint",
+    #            },
+    #            "side": {
+    #                 "type": "string",
+    #                 "size": 1
+    #            },
+    #            "price": {
+    #                 "type": "uint",
+    #            },
+    #            "amount": {
+    #                 "type": "uint",
+    #            },
+    #            "type": {
+    #                 "type": "string",
+    #                 "size": 1
+    #            },
+    #            "storageSlot": {
+    #                 "type": "bytes",
+    #                 "size": 1
+    #            }
+    #         })
+    #         unpacked_data.append(data)
+    #         num += 1
+    #     return unpacked_data
 
     async def _update_time_synchronizer(self):
         try:
