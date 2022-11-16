@@ -20,12 +20,13 @@ class UltradeOrderBook(OrderBook):
         """
         if metadata:
             msg.update(metadata)
-        ts = msg["t"]
+        ts = msg["ts"]
+        # TODO CHECK UPDATE_ID
         return OrderBookMessage(OrderBookMessageType.SNAPSHOT, {
             "trading_pair": msg["trading_pair"],
             "update_id": ts,
-            "bids": msg["b"],
-            "asks": msg["a"]
+            "bids": msg["buy"],
+            "asks": msg["sell"]
         }, timestamp=timestamp)
 
     @classmethod
@@ -44,8 +45,10 @@ class UltradeOrderBook(OrderBook):
         print('METADATA: ', metadata)
         if metadata:
             msg.update(metadata)
+        ts = msg["ts"]
         return OrderBookMessage(OrderBookMessageType.SNAPSHOT, {
             "trading_pair": msg["trading_pair"],
+            "update_id": ts,
             "bids": msg["buy"],
             "asks": msg["sell"]
         }, timestamp=timestamp)
@@ -64,12 +67,12 @@ class UltradeOrderBook(OrderBook):
         """
         if metadata:
             msg.update(metadata)
-        ts = msg["t"]
+        ts = msg["ts"]
         return OrderBookMessage(OrderBookMessageType.DIFF, {
             "trading_pair": msg["trading_pair"],
             "update_id": ts,
-            "bids": msg["b"],
-            "asks": msg["a"]
+            "bids": msg["buy"],
+            "asks": msg["sell"]
         }, timestamp=timestamp)
 
     @classmethod
@@ -82,7 +85,7 @@ class UltradeOrderBook(OrderBook):
         """
         if metadata:
             msg.update(metadata)
-        ts = msg["t"]
+        ts = msg["ts"]
         return OrderBookMessage(OrderBookMessageType.TRADE, {
             "trading_pair": msg["trading_pair"],
             "trade_type": float(TradeType.BUY.value) if msg["m"] else float(TradeType.SELL.value),

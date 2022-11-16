@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 from typing import Optional
@@ -19,7 +20,7 @@ class UltradeAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     HEARTBEAT_TIME_INTERVAL = 30.0
 
-    _logger: Optional[HummingbotLogger] = None
+    _bausds_logger: Optional[HummingbotLogger] = None
 
     def __init__(self,
                  auth: UltradeAuth,
@@ -70,7 +71,6 @@ class UltradeAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 ws: WSAssistant = await self._get_ws_assistant()
                 await ws.connect(ws_url=CONSTANTS.WSS_PRIVATE_URL[self._domain])
                 self.logger().info("Successfully ws connect")
-                await self._authenticate_connection(ws)
                 self._last_ws_message_sent_timestamp = self._time()
                 while True:
                     try:
@@ -106,13 +106,18 @@ class UltradeAPIUserStreamDataSource(UserStreamTrackerDataSource):
     async def _process_ws_messages(self, ws: WSAssistant, output: asyncio.Queue):
         async for ws_response in ws.iter_messages():
             print('WS_RESPONSE: ', ws_response)
-            data = ws_response.data
-            if isinstance(data, list):
-                for message in data:
-                    if message["e"] in ["executionReport", "outboundAccountInfo"]:
-                        output.put_nowait(message)
-            elif data.get("auth") == "fail":
-                raise IOError("Private channel authentication failed.")
+            data = json.loads(ws_response.data[1:])
+            sid = data['sid']
+            output.put_nowait(sid)
+            # data = ws_response.data
+            # print('data ws RESP: ', data)
+            # print('type ws resp: ', type(data))
+            # if isinstance(data, list):
+            #     for message in data:
+            #         if message["e"] in ["executionReport", "outboundAccountInfo"]:
+            #             output.put_nowait(message)
+            # elif data.get("auth") == "fail":
+            #     raise IOError("Private channel authentication failed.")
 
     async def _get_ws_assistant(self) -> WSAssistant:
         if self._ws_assistant is None:

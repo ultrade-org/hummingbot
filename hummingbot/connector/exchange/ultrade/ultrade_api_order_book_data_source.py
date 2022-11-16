@@ -150,6 +150,9 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             api_factory=api_factory,
             throttler=throttler,
             time_synchronizer=time_synchronizer)
+        print('symbol_map ', symbol_map)
+        print('trading_pair ', trading_pair)
+        print('exchange_symbol_associated_to_pair ', symbol_map.inverse[trading_pair.lower()])
         return symbol_map.inverse[trading_pair.lower()].lower()
 
     @staticmethod
@@ -174,6 +177,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             api_factory=api_factory,
             throttler=throttler,
             time_synchronizer=time_synchronizer)
+        print('trading_pair_associated_to_exchange_symbol ', symbol)
         return symbol_map[symbol]
 
     @staticmethod
@@ -197,6 +201,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             api_factory=api_factory,
             time_synchronizer=time_synchronizer,
         )
+        print('fetch_trading_pairs ', list(mapping.values()))
         return list(mapping.values())
 
     async def get_new_order_book(self, trading_pair: str) -> OrderBook:
@@ -205,8 +210,10 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         :param trading_pair: the trading pair for which the order book has to be retrieved
         :return: a local copy of the current order book in the exchange
         """
+        print('get trading_pair: ', trading_pair)
         snapshot: Dict[str, Any] = await self.get_snapshot(trading_pair, 1000)
-        snapshot_timestamp: float = snapshot['time'] / 1000
+        print('get snapshot: ', snapshot)
+        snapshot_timestamp: float = time.time()
 
         snapshot_msg: OrderBookMessage = UltradeOrderBook.snapshot_message_from_exchange_rest(
             snapshot,
@@ -366,8 +373,10 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         Subscribes to the trade events and diff orders events through the provided websocket connection.
         :param ws: the websocket assistant used to connect to the exchange
         """
+        print('_trading_pairs ', self._trading_pairs)
         try:
             for trading_pair in self._trading_pairs:
+                print('_trading_pairs ', trading_pair)
                 symbol = await self.exchange_symbol_associated_to_pair(
                     trading_pair=trading_pair,
                     domain=self._domain,
@@ -375,12 +384,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     throttler=self._throttler,
                     time_synchronizer=self._time_synchronizer)
                 trade_payload = {
-                    "topic": "trade",
-                    "event": "sub",
-                    "symbol": symbol,
-                    "params": {
-                        "binary": False
-                    }
+                    "currentPair"
                 }
                 subscribe_trade_request: WSJSONRequest = WSJSONRequest(payload=trade_payload)
 
@@ -468,16 +472,11 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         print('REQUEST TO _process_ws_messages ')
         async for ws_response in ws.iter_messages():
             print('ws_response', ws_response)
-            print('ws_response data type', ws_response.data)
-            data = json.loads(ws_response.data)
-            if data.get("msg") == "Success":
-                continue
-            event_type = data.get("topic")
+            print('ws_response data', ws_response.data[1:])
+            data = json.loads(ws_response.data[1:])
+            event_type = data[0]
             if event_type == CONSTANTS.DIFF_EVENT_TYPE:
-                if data.get("f"):
-                    self._message_queue[CONSTANTS.SNAPSHOT_EVENT_TYPE].put_nowait(data)
-                else:
-                    self._message_queue[CONSTANTS.DIFF_EVENT_TYPE].put_nowait(data)
+                self._message_queue[CONSTANTS.DIFF_EVENT_TYPE].put_nowait(data)
             elif event_type == CONSTANTS.TRADE_EVENT_TYPE:
                 self._message_queue[CONSTANTS.TRADE_EVENT_TYPE].put_nowait(data)
 
