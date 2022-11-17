@@ -23,7 +23,7 @@ PRIVATE_API_VERSION = "v2"
 # Websocket event types
 DIFF_EVENT_TYPE = "allStat"
 TRADE_EVENT_TYPE = "trade"
-SNAPSHOT_EVENT_TYPE = "depth"
+SNAPSHOT_EVENT_TYPE = "currentPair"
 
 # Rate Limit Type
 REQUEST_WEIGHT = "REQUEST_WEIGHT"
