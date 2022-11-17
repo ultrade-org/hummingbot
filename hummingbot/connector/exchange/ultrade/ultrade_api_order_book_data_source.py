@@ -5,8 +5,6 @@ import time
 from collections import defaultdict
 from typing import Any, Dict, List, Mapping, Optional
 
-from bidict import bidict
-
 import hummingbot.connector.exchange.ultrade.ultrade_constants as CONSTANTS
 from hummingbot.connector.exchange.ultrade import ultrade_web_utils as web_utils
 from hummingbot.connector.exchange.ultrade.ultrade_order_book import UltradeOrderBook
@@ -115,10 +113,13 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             exchange
         :return: bidirectional mapping between trading pair exchange notation and client notation
         """
+        print('trading_pair_symbol_map')
         if not cls.trading_pair_symbol_map_ready(domain=domain):
+            print('not cls.trading_pair_symbol_map_ready')
             async with cls._mapping_initialization_lock:
                 # Check condition again (could have been initialized while waiting for the lock to be released)
                 if not cls.trading_pair_symbol_map_ready(domain=domain):
+                    print('not cls.trading_pair_symbol_map_ready 2')
                     await cls._init_trading_pair_symbols(
                         domain=CONSTANTS.DEFAULT_DOMAIN,
                         api_factory=api_factory,
@@ -152,8 +153,10 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             time_synchronizer=time_synchronizer)
         print('symbol_map ', symbol_map)
         print('trading_pair ', trading_pair)
-        print('exchange_symbol_associated_to_pair ', symbol_map.inverse[trading_pair.lower()])
-        return symbol_map.inverse[trading_pair.lower()].lower()
+        print('symbol_map type ', type(symbol_map))
+        # print('symbol type ', type(symbol_map[trading_pair.lower()]))
+        print('exchange_symbol_associated_to_pair ALGO_WETH ', [v for k, v in symbol_map.items() if v["pair_name"] == trading_pair.lower()])
+        return [v for k, v in symbol_map.items() if v["pair_name"] == trading_pair.lower()][0]
 
     @staticmethod
     async def trading_pair_associated_to_exchange_symbol(
@@ -177,8 +180,11 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             api_factory=api_factory,
             throttler=throttler,
             time_synchronizer=time_synchronizer)
-        print('trading_pair_associated_to_exchange_symbol ', symbol)
-        return symbol_map[symbol]
+        print('symbol ', symbol)
+        print('trading_pair_associated_to_exchange_symbol symbol_map ', symbol_map)
+        print('trading_pair_associated_to_exchange_symbol symbol_map type ', type(symbol_map))
+        print('trading_pair_associated_to_exchange_symbol ', symbol_map[symbol]['pair_name'])
+        return symbol_map[symbol]['pair_name']
 
     @staticmethod
     async def fetch_trading_pairs(
@@ -337,7 +343,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def get_snapshot(
             self,
             trading_pair: str,
-            limit: int = 30,
+            limit: int = 300,
     ) -> Dict[str, Any]:
         """
         Retrieves a copy of the full order book from the exchange, for a particular trading pair.
@@ -345,13 +351,14 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         :param limit: the depth of the order book to retrieve
         :return: the response from the exchange (JSON dictionary)
         """
+        symbol = await self.exchange_symbol_associated_to_pair(
+            trading_pair=trading_pair,
+            domain=self._domain,
+            api_factory=self._api_factory,
+            throttler=self._throttler,
+            time_synchronizer=self._time_synchronizer)
         params = {
-            "symbol": await self.exchange_symbol_associated_to_pair(
-                trading_pair=trading_pair,
-                domain=self._domain,
-                api_factory=self._api_factory,
-                throttler=self._throttler,
-                time_synchronizer=self._time_synchronizer)
+            "symbol": symbol
         }
         if limit != 0:
             params["depth"] = limit
@@ -373,33 +380,29 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         Subscribes to the trade events and diff orders events through the provided websocket connection.
         :param ws: the websocket assistant used to connect to the exchange
         """
-        print('_trading_pairs ', self._trading_pairs)
+        print('_subscribe_channels _trading_pairs', self._trading_pairs)
         try:
             for trading_pair in self._trading_pairs:
-                print('_trading_pairs ', trading_pair)
+                print('_subscribe_channels trading_pair ', trading_pair)
                 symbol = await self.exchange_symbol_associated_to_pair(
                     trading_pair=trading_pair,
                     domain=self._domain,
                     api_factory=self._api_factory,
                     throttler=self._throttler,
                     time_synchronizer=self._time_synchronizer)
+                # print(f'_subscribe_channels symbol {symbol}, {pair_id}, {application_id}')
                 trade_payload = {
-                    "currentPair"
+                    {
+                        'address': 'dfsfs',
+                        "application_id": symbol["application_id"],
+                        "order_filter": "CurrentPair",
+                        "pair": symbol["pair_name"],
+                        "pair_id": symbol["pair_id"]
+                    }
                 }
                 subscribe_trade_request: WSJSONRequest = WSJSONRequest(payload=trade_payload)
 
-                depth_payload = {
-                    "topic": "diffDepth",
-                    "event": "sub",
-                    "symbol": symbol,
-                    "params": {
-                        "binary": False
-                    }
-                }
-                subscribe_orderbook_request: WSJSONRequest = WSJSONRequest(payload=depth_payload)
-
                 await ws.send(subscribe_trade_request)
-                await ws.send(subscribe_orderbook_request)
 
                 self.logger().info(f"Subscribed to public order book and trade channels of {trading_pair}...")
         except asyncio.CancelledError:
@@ -449,7 +452,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         """
         Initialize mapping of trade symbols in exchange notation to trade symbols in client notation
         """
-        mapping = bidict()
+        mapping = {}
 
         try:
             print('REQUEST TO EXCHANGE PATH ')
@@ -463,7 +466,12 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             )
 
             for symbol_data in data["data"]:
-                mapping[symbol_data["pair_name"]] = combine_to_hb_trading_pair(base=symbol_data["base_currency"], quote=symbol_data["price_currency"])
+                mapping[symbol_data["pair_name"]] = {
+                    "pair_name": combine_to_hb_trading_pair(base=symbol_data["base_currency"], quote=symbol_data["price_currency"]),
+                    "pair_id": symbol_data["id"],
+                    "application_id": symbol_data["application_id"]
+                }
+
         except Exception as ex:
             cls.logger().error(f"There was an error requesting exchange info ({str(ex)})")
         cls._trading_pair_symbol_map[domain] = mapping
@@ -477,6 +485,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             event_type = data[0]
             if event_type == CONSTANTS.DIFF_EVENT_TYPE:
                 self._message_queue[CONSTANTS.DIFF_EVENT_TYPE].put_nowait(data)
+
             elif event_type == CONSTANTS.TRADE_EVENT_TYPE:
                 self._message_queue[CONSTANTS.TRADE_EVENT_TYPE].put_nowait(data)
 
