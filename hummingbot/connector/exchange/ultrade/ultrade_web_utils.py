@@ -120,7 +120,8 @@ async def api_request(path: str,
                                   f"Error: {error_response}")
         try:
             return await response.json()
-        except ValueError:
+        except Exception as e:
+            print(e)
             resp = await response.text()
             return json.loads(resp)
 
