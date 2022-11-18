@@ -297,8 +297,6 @@ class UltradeExchange(ExchangeBase):
         :param trading_pair: the trading pair to check for market conditions
         :param price: the starting point price
         """
-        print('get_order_price_quantum trading_pair ', trading_pair)
-        print('get_order_price_quantum trading_rules ', self._trading_rules)
         trading_rule = self._trading_rules[trading_pair.lower()]
         return trading_rule.min_price_increment
 
@@ -310,7 +308,6 @@ class UltradeExchange(ExchangeBase):
         :param order_size: the starting point order price
         """
         trading_rule = self._trading_rules[trading_pair.lower()]
-        print('get_order_size_quantum ', trading_rule)
         return trading_rule.min_base_amount_increment
 
     def quantize_order_amount(self, trading_pair: str, amount: Decimal, price: Decimal = s_decimal_0) -> Decimal:
@@ -908,7 +905,7 @@ class UltradeExchange(ExchangeBase):
                         print('ordersKey type ', orders_key)
                         decoded_balances = self.get_account_info_form_local_storage(balances_key['value']['bytes'])
                         print("decoded_balances ", decoded_balances)
-                        # decoded_orders = self.print_unpacked_local_data(orders_key['value']['bytes'])
+                        # self.print_unpacked_local_data(orders_key['value']['bytes'])
 
                         balance_data['base_locked'] = self.amount_formate(decoded_balances['baseCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
                         balance_data['base_available'] = self.amount_formate(decoded_balances['baseCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
@@ -1057,10 +1054,6 @@ class UltradeExchange(ExchangeBase):
             method=method,
             is_auth_required=is_auth_required,
         )
-        # for acc in response['accounts']:
-        #     print('ADDRESS ', acc['address'])
-        # if response["ret_code"] != 0:
-        #     raise IOError(f"The request to Ultrade failed. Error: {response['ret_msg']}. Error code: {response['ret_code']}")
         return response
 
     async def _get_rest_assistant(self) -> RESTAssistant:
