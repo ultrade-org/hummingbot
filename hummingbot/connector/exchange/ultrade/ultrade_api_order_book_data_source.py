@@ -155,8 +155,8 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         print('trading_pair ', trading_pair)
         print('symbol_map type ', type(symbol_map))
         # print('symbol type ', type(symbol_map[trading_pair.lower()]))
-        print('exchange_symbol_associated_to_pair ALGO_WETH ', [v for k, v in symbol_map.items() if v["pair_name"] == trading_pair.lower()])
-        return [v for k, v in symbol_map.items() if v["pair_name"] == trading_pair.lower()][0]
+        print('exchange_symbol_associated_to_pair ALGO_WETH ', [(k, v) for k, v in symbol_map.items() if v["pair_name"] == trading_pair.lower()])
+        return [(k, v) for k, v in symbol_map.items() if v["pair_name"] == trading_pair.lower()][0]
 
     @staticmethod
     async def trading_pair_associated_to_exchange_symbol(
@@ -357,8 +357,9 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             api_factory=self._api_factory,
             throttler=self._throttler,
             time_synchronizer=self._time_synchronizer)
+        print('get_snapshot symbol ', symbol)
         params = {
-            "symbol": symbol
+            "symbol": symbol[0].lower()
         }
         if limit != 0:
             params["depth"] = limit
@@ -390,15 +391,13 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     api_factory=self._api_factory,
                     throttler=self._throttler,
                     time_synchronizer=self._time_synchronizer)
-                # print(f'_subscribe_channels symbol {symbol}, {pair_id}, {application_id}')
+                pair_name, pair_id, application_id = symbol[1].values()
                 trade_payload = {
-                    {
-                        'address': 'dfsfs',
-                        "application_id": symbol["application_id"],
-                        "order_filter": "CurrentPair",
-                        "pair": symbol["pair_name"],
-                        "pair_id": symbol["pair_id"]
-                    }
+                    'address': 'dfsfs',
+                    "application_id": application_id,
+                    "order_filter": "CurrentPair",
+                    "pair": pair_name,
+                    "pair_id": pair_id
                 }
                 subscribe_trade_request: WSJSONRequest = WSJSONRequest(payload=trade_payload)
 
