@@ -66,12 +66,15 @@ class UltradeExchange(ExchangeBase):
             domain=self._domain,
             auth=self._auth)
         self._rest_assistant = None
+        self._data_source = UltradeAPIOrderBookDataSource(
+            trading_pairs=trading_pairs,
+            domain=self._domain,
+            wallet_address=ultrade_wallet_address,
+            api_factory=self._api_factory,
+            throttler=self._throttler
+        )
         self._order_book_tracker = OrderBookTracker(
-            data_source=UltradeAPIOrderBookDataSource(
-                trading_pairs=trading_pairs,
-                domain=self._domain,
-                api_factory=self._api_factory,
-                throttler=self._throttler),
+            data_source=self._data_source,
             trading_pairs=trading_pairs,
             domain=self._domain)
         self._user_stream_tracker = UserStreamTracker(
@@ -868,7 +871,6 @@ class UltradeExchange(ExchangeBase):
         return pairs_info['data']
 
     def account_info(self, account_info: Dict, pairs: Dict):
-        print('pairs_info ', pairs)
         user_account = account_info['account']
         min_algo_balance = self.amount_value_format(user_account['min-balance'], 6)
         print('min_algo_balance: ', min_algo_balance)
@@ -878,41 +880,47 @@ class UltradeExchange(ExchangeBase):
             local_state = [state for state in local_state if state['deleted'] is False]
 
             if local_state and len(local_state) > 0:
+                print('if apps-local-state > 0')
                 for state in local_state:
-                    pair = next((p for p in pairs if p['application_id'] == state['id']))
-                    if pair:
-                        balance_data = {
-                            'address': self._auth.wallet_address,
-                            'round': account_info['current-round'],
-                            'min_algo_balance': min_algo_balance,
-                            'base_locked': "0",
-                            'base_available': "0",
-                            'price_locked': "0",
-                            'price_available': "0",
-                            'pair_name': pair['pair_key'] if pair else '',
-                            'base_currency': pair['base_currency'].upper() if pair else "",
-                            'price_currency': pair['price_currency'].upper() if pair else "",
-                            'base_decimal': pair['base_decimal'] if pair else 6,
-                            'price_decimal': pair['price_decimal'] if pair else 6,
-                            'min_size_increment': pair['min_size_increment'] if pair else 1000000,
-                            'min_price_increment': pair['min_price_increment'] if pair else 100,
-                            'orders': [],
-                            'application_id': state['id']
-                        }
-                        balances_key = next(el for el in state['key-value'] if el['key'] == 'YWNjb3VudEluZm8=')
-                        orders_key = next(el for el in state['key-value'] if el['key'] != 'YWNjb3VudEluZm8=')
-                        print('balancesKey ', balances_key)
-                        print('ordersKey type ', orders_key)
-                        decoded_balances = self.get_account_info_form_local_storage(balances_key['value']['bytes'])
-                        print("decoded_balances ", decoded_balances)
-                        # self.print_unpacked_local_data(orders_key['value']['bytes'])
+                    try:
+                        pair = next((p for p in pairs if p['application_id'] == state['id']))
+                        if pair:
+                            balance_data = {
+                                'address': self._auth.wallet_address,
+                                'round': account_info['current-round'],
+                                'min_algo_balance': min_algo_balance,
+                                'base_locked': "0",
+                                'base_available': "0",
+                                'price_locked': "0",
+                                'price_available': "0",
+                                'pair_name': pair['pair_key'] if pair else '',
+                                'base_currency': pair['base_currency'].upper() if pair else "",
+                                'price_currency': pair['price_currency'].upper() if pair else "",
+                                'base_decimal': pair['base_decimal'] if pair else 6,
+                                'price_decimal': pair['price_decimal'] if pair else 6,
+                                'min_size_increment': pair['min_size_increment'] if pair else 1000000,
+                                'min_price_increment': pair['min_price_increment'] if pair else 100,
+                                'orders': [],
+                                'application_id': state['id']
+                            }
+                            print('after ba;ance_data')
+                            balances_key = next(el for el in state['key-value'] if el['key'] == 'YWNjb3VudEluZm8=')
+                            orders_key = next(el for el in state['key-value'] if el['key'] != 'YWNjb3VudEluZm8=')
+                            print('balancesKey ', balances_key)
+                            print('ordersKey type ', orders_key)
+                            decoded_balances = self.get_account_info_form_local_storage(balances_key['value']['bytes'])
+                            print("decoded_balances ", decoded_balances)
+                            # self.print_unpacked_local_data(orders_key['value']['bytes'])
 
-                        balance_data['base_locked'] = self.amount_formate(decoded_balances['baseCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
-                        balance_data['base_available'] = self.amount_formate(decoded_balances['baseCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
-                        balance_data['price_locked'] = self.amount_formate(decoded_balances['priceCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
-                        balance_data['price_available'] = self.amount_formate(decoded_balances['priceCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                            balance_data['base_locked'] = self.amount_formate(decoded_balances['baseCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                            balance_data['base_available'] = self.amount_formate(decoded_balances['baseCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                            balance_data['price_locked'] = self.amount_formate(decoded_balances['priceCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                            balance_data['price_available'] = self.amount_formate(decoded_balances['priceCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
 
-                        balances.append(balance_data)
+                            balances.append(balance_data)
+                    except Exception as e:
+                        print(f"There is no pairs with such app_id: {state['id']}")
+                        print(e)
             return balances
 
         else:
