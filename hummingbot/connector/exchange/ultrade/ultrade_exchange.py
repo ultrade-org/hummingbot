@@ -66,15 +66,12 @@ class UltradeExchange(ExchangeBase):
             domain=self._domain,
             auth=self._auth)
         self._rest_assistant = None
-        self._data_source = UltradeAPIOrderBookDataSource(
-            trading_pairs=trading_pairs,
-            domain=self._domain,
-            wallet_address=ultrade_wallet_address,
-            api_factory=self._api_factory,
-            throttler=self._throttler
-        )
         self._order_book_tracker = OrderBookTracker(
-            data_source=self._data_source,
+            data_source=UltradeAPIOrderBookDataSource(
+                trading_pairs=trading_pairs,
+                domain=self._domain,
+                api_factory=self._api_factory,
+                throttler=self._throttler),
             trading_pairs=trading_pairs,
             domain=self._domain)
         self._user_stream_tracker = UserStreamTracker(
