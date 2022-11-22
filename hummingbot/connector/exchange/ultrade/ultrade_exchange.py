@@ -828,7 +828,6 @@ class UltradeExchange(ExchangeBase):
                 await asyncio.sleep(1.0)
 
     async def _update_balances(self):
-        local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
 
         account_info = await self._api_request(
@@ -851,10 +850,6 @@ class UltradeExchange(ExchangeBase):
             self._account_balances[base_currency] = base_available
             self._account_balances[price_currency] = price_available
             remote_asset_names.update(base_currency, price_currency)
-
-        asset_names_to_remove = local_asset_names.difference(remote_asset_names)
-        for asset_name in asset_names_to_remove:
-            del self._account_balances[asset_name]
 
     async def _get_pairs(self):
         pair_req_body = {'address': self._auth.wallet_address}
