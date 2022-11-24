@@ -1,7 +1,7 @@
 from hummingbot.core.api_throttler.data_types import LinkedLimitWeightPair, RateLimit
 from hummingbot.core.data_type.in_flight_order import OrderState
 
-DEFAULT_DOMAIN = "dev"
+DEFAULT_DOMAIN = "ultrade"
 ACC_DOMAIN = "acc"
 # DEV_DOMAIN
 # BASE URL
@@ -10,10 +10,10 @@ ACC_DOMAIN = "acc"
 REST_URL = 'https://indexer.testnet.algoexplorerapi.io/'
 
 REST_URLS = {"acc": "https://indexer.testnet.algoexplorerapi.io",
-             "dev": "https://dev-apigw.ultradedev.net"}
+             "ultrade": "https://dev-apigw.ultradedev.net"}
 
-WSS_V1_PUBLIC_URL = {"dev": "wss://testnet-ws.ultradedev.net/socket.io/?EIO=4&transport=websocket"}
-WSS_PRIVATE_URL = {"dev": "wss://testnet-ws.ultradedev.net/socket.io/?EIO=4&transport=websocket"}
+WSS_V1_PUBLIC_URL = {"ultrade": "wss://dev-ws.ultradedev.net/socket.io/?EIO=4&transport=websocket"}
+WSS_PRIVATE_URL = {"ultrade": "wss://dev-ws.ultradedev.net/socket.io/?EIO=4&transport=websocket"}
 
 WS_HEARTBEAT_TIME_INTERVAL = 25000
 
@@ -21,6 +21,7 @@ PUBLIC_API_VERSION = "/v2"
 PRIVATE_API_VERSION = "v2"
 
 # Websocket event types
+START_EVENT_TYPE = 'START'
 DIFF_EVENT_TYPE = "allStat"
 TRADE_EVENT_TYPE = "trade"
 SNAPSHOT_EVENT_TYPE = "currentPair"

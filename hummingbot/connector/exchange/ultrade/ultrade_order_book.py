@@ -21,7 +21,6 @@ class UltradeOrderBook(OrderBook):
         if metadata:
             msg.update(metadata)
         ts = msg["ts"]
-        # TODO CHECK UPDATE_ID
         return OrderBookMessage(OrderBookMessageType.SNAPSHOT, {
             "trading_pair": msg["trading_pair"],
             "update_id": ts,
