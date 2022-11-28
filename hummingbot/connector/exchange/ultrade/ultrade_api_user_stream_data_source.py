@@ -10,7 +10,7 @@ from hummingbot.connector.exchange.ultrade.ultrade_auth import UltradeAuth
 from hummingbot.connector.time_synchronizer import TimeSynchronizer
 from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
-from hummingbot.core.web_assistant.connections.data_types import WSJSONRequest
+from hummingbot.core.web_assistant.connections.data_types import WSJSONRequest, WSPlainTextRequest
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 from hummingbot.core.web_assistant.ws_assistant import WSAssistant
 from hummingbot.logger import HummingbotLogger
@@ -80,10 +80,7 @@ class UltradeAPIUserStreamDataSource(UserStreamTrackerDataSource):
                             self._process_ws_messages(ws=ws, output=output), timeout=seconds_until_next_ping)
                     except asyncio.TimeoutError:
                         ping_time = self._time()
-                        payload = {
-                            "ping": int(ping_time * 1e3)
-                        }
-                        ping_request = WSJSONRequest(payload=payload)
+                        ping_request: WSJSONRequest = WSJSONRequest(payload=3)
                         await ws.send(request=ping_request)
                         self._last_ws_message_sent_timestamp = ping_time
             except asyncio.CancelledError:
@@ -105,19 +102,30 @@ class UltradeAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     async def _process_ws_messages(self, ws: WSAssistant, output: asyncio.Queue):
         async for ws_response in ws.iter_messages():
-            print('WS_RESPONSE: ', ws_response)
-            data = json.loads(ws_response.data[1:])
-            sid = data['sid']
-            output.put_nowait(sid)
-            # data = ws_response.data
-            # print('data ws RESP: ', data)
-            # print('type ws resp: ', type(data))
-            # if isinstance(data, list):
-            #     for message in data:
-            #         if message["e"] in ["executionReport", "outboundAccountInfo"]:
-            #             output.put_nowait(message)
-            # elif data.get("auth") == "fail":
-            #     raise IOError("Private channel authentication failed.")
+            try:
+                if ws_response.data == 2:
+                    req: WSJSONRequest = WSJSONRequest(payload=3)
+                    await ws.send(req)
+                else:
+                    data = json.loads(ws_response.data[1:])
+                    start_message: WSJSONRequest = WSJSONRequest(payload=40)
+                    await ws.send(start_message)
+                    output.put_nowait(data)
+            except Exception:
+                index = ws_response.data[:2]
+                if index == '40':
+                    data = json.loads(ws_response.data[2:])
+                    payload = {
+                        "address": ws._auth.wallet_address,
+                        "application_id": 92958499,
+                        "order_filter": "CurrentPair",
+                        "pair": "algo_weth",
+                        "pair_id": 2
+                    }
+                    subscribe_payload = f'42["currentPair", {json.loads(payload)}]'
+                    current_pair: WSPlainTextRequest = WSPlainTextRequest(payload=subscribe_payload)
+                    await ws.send(current_pair)
+                    output.put_nowait(data)
 
     async def _get_ws_assistant(self) -> WSAssistant:
         if self._ws_assistant is None:
