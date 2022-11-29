@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterable, Dict, List, Optional
 from algosdk.abi.byte_type import ByteType
 from algosdk.abi.uint_type import UintType
 from algosdk.encoding import encode_address
+from algosdk.v2client import algod
 
 import hummingbot.connector.exchange.ultrade.ultrade_constants as CONSTANTS
 import hummingbot.connector.exchange.ultrade.ultrade_web_utils as web_utils
@@ -17,7 +18,11 @@ from hummingbot.connector.exchange.ultrade.ultrade_auth import UltradeAuth
 from hummingbot.connector.exchange_base import ExchangeBase
 from hummingbot.connector.time_synchronizer import TimeSynchronizer
 from hummingbot.connector.trading_rule import TradingRule
+
+# from hummingbot.connector.utils import get_new_client_order_id
 from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
+
+# from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderUpdate, TradeUpdate
 from hummingbot.core.data_type.limit_order import LimitOrder
@@ -31,6 +36,9 @@ from hummingbot.core.utils.estimate_fee import build_trade_fee
 from hummingbot.core.web_assistant.connections.data_types import RESTMethod
 from hummingbot.core.web_assistant.rest_assistant import RESTAssistant
 from hummingbot.logger import HummingbotLogger
+
+# from async_timeout import timeout
+
 
 if TYPE_CHECKING:
     from hummingbot.client.config.config_helpers import ClientConfigAdapter
@@ -102,8 +110,8 @@ class UltradeExchange(ExchangeBase):
 
     @property
     def name(self) -> str:
-        if self._domain == "dev":
-            return "dev"
+        if self._domain == "ultrade":
+            return "ultrade"
         else:
             return f"{self._domain}"
 
@@ -319,7 +327,7 @@ class UltradeExchange(ExchangeBase):
         :return: the quantized order amount after applying the trading rules
         """
         trading_rule = self._trading_rules[trading_pair.lower()]
-        quantized_amount: Decimal = super().quantize_order_amount(trading_pair, amount)
+        quantized_amount: Decimal = super().quantize_order_amount(trading_pair.lower(), amount)
 
         # Check against min_order_size and min_notional_size. If not passing either check, return 0.
         if quantized_amount < trading_rule.min_order_size:
@@ -701,11 +709,14 @@ class UltradeExchange(ExchangeBase):
 
                 min_order_size = rule.get("min_order_size")
                 min_price_increment = rule.get("min_price_increment")
-                # TODO check comment atributes
+                min_base_amount_increment = rule.get("min_size_increment")
+                min_notional_size = rule.get("min_order_size")
                 retval.append(
                     TradingRule(trading_pair,
                                 min_order_size=Decimal(min_order_size),
-                                min_price_increment=Decimal(min_price_increment)))
+                                min_price_increment=Decimal(min_price_increment),
+                                min_base_amount_increment=Decimal(min_base_amount_increment),
+                                min_notional_size=Decimal(min_notional_size)))
 
             except Exception:
                 self.logger().exception(f"Error parsing the trading pair rule {rule.get('name')}. Skipping.")
@@ -839,7 +850,9 @@ class UltradeExchange(ExchangeBase):
 
         pairs = await self._get_pairs()
 
-        balances = self.account_info(account_info, pairs)
+        myalgo_wallet = self.get_myalgo_wallet_info()
+
+        balances = self.account_info(account_info, pairs, myalgo_wallet)
 
         for balance_entry in balances:
             print('balance_entry ', balance_entry)
@@ -862,7 +875,7 @@ class UltradeExchange(ExchangeBase):
         )
         return pairs_info['data']
 
-    def account_info(self, account_info: Dict, pairs: Dict):
+    def account_info(self, account_info: Dict, pairs: Dict, myalgo_wallet):
         user_account = account_info['account']
         min_algo_balance = self.amount_value_format(user_account['min-balance'], 6)
         print('min_algo_balance: ', min_algo_balance)
@@ -904,10 +917,13 @@ class UltradeExchange(ExchangeBase):
                             print("decoded_balances ", decoded_balances)
                             # self.print_unpacked_local_data(orders_key['value']['bytes'])
 
+                            base_wallet_amount = [d[pair['base_currency']] for d in myalgo_wallet if pair['base_currency'] in d][0]
+                            price_wallet_amount = [d[pair['price_currency']] for d in myalgo_wallet if pair['price_currency'] in d][0]
+
                             balance_data['base_locked'] = self.amount_formate(decoded_balances['baseCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
-                            balance_data['base_available'] = self.amount_formate(decoded_balances['baseCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                            balance_data['base_available'] = self.amount_formate(decoded_balances['baseCoin_available'] + base_wallet_amount, balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
                             balance_data['price_locked'] = self.amount_formate(decoded_balances['priceCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
-                            balance_data['price_available'] = self.amount_formate(decoded_balances['priceCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                            balance_data['price_available'] = self.amount_formate(decoded_balances['priceCoin_available'] + price_wallet_amount, balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
 
                             balances.append(balance_data)
                     except Exception as e:
@@ -1017,6 +1033,14 @@ class UltradeExchange(ExchangeBase):
     #         unpacked_data.append(data)
     #         num += 1
     #     return unpacked_data
+
+    def get_myalgo_wallet_info(self):
+        algod_address = "https://indexer.testnet.algoexplorerapi.io"
+        algod_client = algod.AlgodClient('', algod_address)
+        account_info = algod_client.account_info('LTOCXXLWP5G5RDA7KNG4YLHLWBDSSEWXXODK65D45AR2FEXRJ42RUXY42E')
+        wallet_balance = list({asset['unit-name'].lower(): asset['amount']} for asset in account_info.get('account').get('assets'))
+        wallet_balance.append({'algo': account_info['account']['amount']})
+        return wallet_balance
 
     async def _update_time_synchronizer(self):
         try:
