@@ -122,7 +122,7 @@ class UltradeAPIUserStreamDataSource(UserStreamTrackerDataSource):
                         "pair": "algo_weth",
                         "pair_id": 2
                     }
-                    subscribe_payload = f'42["currentPair", {json.loads(payload)}]'
+                    subscribe_payload = f'42["currentPair", {json.dumps(payload)}]'
                     current_pair: WSPlainTextRequest = WSPlainTextRequest(payload=subscribe_payload)
                     await ws.send(current_pair)
                     output.put_nowait(data)
