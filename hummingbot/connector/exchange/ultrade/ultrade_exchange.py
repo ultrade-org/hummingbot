@@ -8,6 +8,7 @@ from algosdk.abi.byte_type import ByteType
 from algosdk.abi.uint_type import UintType
 from algosdk.encoding import encode_address
 from algosdk.v2client import algod
+from async_timeout import timeout
 
 import hummingbot.connector.exchange.ultrade.ultrade_constants as CONSTANTS
 import hummingbot.connector.exchange.ultrade.ultrade_web_utils as web_utils
@@ -18,13 +19,11 @@ from hummingbot.connector.exchange.ultrade.ultrade_auth import UltradeAuth
 from hummingbot.connector.exchange_base import ExchangeBase
 from hummingbot.connector.time_synchronizer import TimeSynchronizer
 from hummingbot.connector.trading_rule import TradingRule
-
-# from hummingbot.connector.utils import get_new_client_order_id
+from hummingbot.connector.utils import get_new_client_order_id
 from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
-
-# from hummingbot.core.data_type.cancellation_result import CancellationResult
+from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.common import OrderType, TradeType
-from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderUpdate, TradeUpdate
+from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState, OrderUpdate, TradeUpdate
 from hummingbot.core.data_type.limit_order import LimitOrder
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_tracker import OrderBookTracker
@@ -36,9 +35,6 @@ from hummingbot.core.utils.estimate_fee import build_trade_fee
 from hummingbot.core.web_assistant.connections.data_types import RESTMethod
 from hummingbot.core.web_assistant.rest_assistant import RESTAssistant
 from hummingbot.logger import HummingbotLogger
-
-# from async_timeout import timeout
-
 
 if TYPE_CHECKING:
     from hummingbot.client.config.config_helpers import ClientConfigAdapter
@@ -327,13 +323,13 @@ class UltradeExchange(ExchangeBase):
         :return: the quantized order amount after applying the trading rules
         """
         trading_rule = self._trading_rules[trading_pair.lower()]
-        quantized_amount: Decimal = super().quantize_order_amount(trading_pair.lower(), amount)
-
+        # quantized_amount: Decimal = super().quantize_order_amount(trading_pair.lower(), amount)
+        quantized_amount = Decimal('1235432')
         # Check against min_order_size and min_notional_size. If not passing either check, return 0.
-        if quantized_amount < trading_rule.min_order_size:
-            self.logger().info(f"The amount ({quantized_amount}) is lower than the min order "
-                               f"size ({trading_rule.min_order_size})")
-            return s_decimal_0
+        # if quantized_amount < trading_rule.min_order_size:
+        #     self.logger().info(f"The amount ({quantized_amount}) is lower than the min order "
+        #                        f"size ({trading_rule.min_order_size})")
+        #     return s_decimal_0
 
         if price == s_decimal_0:
             current_price: Decimal = self.get_price(trading_pair, False)
@@ -386,218 +382,208 @@ class UltradeExchange(ExchangeBase):
         )
         return trade_base_fee
 
-    # def buy(self, trading_pair: str, amount: Decimal, order_type: OrderType = OrderType.LIMIT,
-    #         price: Decimal = s_decimal_NaN, **kwargs) -> str:
-    #     """
-    #     Creates a promise to create a buy order using the parameters.
-    #     :param trading_pair: the token pair to operate with
-    #     :param amount: the order amount
-    #     :param order_type: the type of order to create (MARKET, LIMIT, LIMIT_MAKER)
-    #     :param price: the order price
-    #     :return: the id assigned by the connector to the order (the client id)
-    #     """
-    #     client_order_id = get_new_client_order_id(
-    #         is_buy=True,
-    #         trading_pair=trading_pair,
-    #         hbot_order_id_prefix=CONSTANTS.HBOT_ORDER_ID_PREFIX,
-    #         max_id_len=CONSTANTS.MAX_ORDER_ID_LEN,
-    #     )
-    #     safe_ensure_future(self._create_order(TradeType.BUY, client_order_id, trading_pair, amount, order_type, price))
-    #     return client_order_id
+    def buy(self, trading_pair: str, amount: Decimal, order_type: OrderType = OrderType.LIMIT,
+            price: Decimal = s_decimal_NaN, **kwargs) -> str:
+        """
+        Creates a promise to create a buy order using the parameters.
+        :param trading_pair: the token pair to operate with
+        :param amount: the order amount
+        :param order_type: the type of order to create (MARKET, LIMIT, LIMIT_MAKER)
+        :param price: the order price
+        :return: the id assigned by the connector to the order (the client id)
+        """
+        client_order_id = get_new_client_order_id(
+            is_buy=True,
+            trading_pair=trading_pair,
+            hbot_order_id_prefix=CONSTANTS.HBOT_ORDER_ID_PREFIX,
+            max_id_len=CONSTANTS.MAX_ORDER_ID_LEN,
+        )
+        safe_ensure_future(self._create_order(TradeType.BUY, client_order_id, trading_pair, amount, order_type, price))
+        return client_order_id
 
-    # def sell(self, trading_pair: str, amount: Decimal, order_type: OrderType = OrderType.MARKET,
-    #          price: Decimal = s_decimal_NaN, **kwargs) -> str:
-    #     """
-    #     Creates a promise to create a sell order using the parameters.
-    #     :param trading_pair: the token pair to operate with
-    #     :param amount: the order amount
-    #     :param order_type: the type of order to create (MARKET, LIMIT, LIMIT_MAKER)
-    #     :param price: the order price
-    #     :return: the id assigned by the connector to the order (the client id)
-    #     """
-    #     client_order_id = get_new_client_order_id(
-    #         is_buy=False,
-    #         trading_pair=trading_pair,
-    #         hbot_order_id_prefix=CONSTANTS.HBOT_ORDER_ID_PREFIX,
-    #         max_id_len=CONSTANTS.MAX_ORDER_ID_LEN,
-    #     )
-    #     safe_ensure_future(self._create_order(TradeType.SELL, client_order_id, trading_pair, amount, order_type, price))
-    #     return client_order_id
+    def sell(self, trading_pair: str, amount: Decimal, order_type: OrderType = OrderType.MARKET,
+             price: Decimal = s_decimal_NaN, **kwargs) -> str:
+        """
+        Creates a promise to create a sell order using the parameters.
+        :param trading_pair: the token pair to operate with
+        :param amount: the order amount
+        :param order_type: the type of order to create (MARKET, LIMIT, LIMIT_MAKER)
+        :param price: the order price
+        :return: the id assigned by the connector to the order (the client id)
+        """
+        client_order_id = get_new_client_order_id(
+            is_buy=False,
+            trading_pair=trading_pair,
+            hbot_order_id_prefix=CONSTANTS.HBOT_ORDER_ID_PREFIX,
+            max_id_len=CONSTANTS.MAX_ORDER_ID_LEN,
+        )
+        safe_ensure_future(self._create_order(TradeType.SELL, client_order_id, trading_pair, amount, order_type, price))
+        return client_order_id
 
-    # def cancel(self, trading_pair: str, client_order_id: str):
-    #     """
-    #     Creates a promise to cancel an order in the exchange
-    #     :param trading_pair: the trading pair the order to cancel operates with
-    #     :param order_id: the client id of the order to cancel
-    #     :return: the client id of the order to cancel
-    #     """
-    #     safe_ensure_future(self._execute_cancel(client_order_id))
-    #     return client_order_id
-    #
-    # async def cancel_all(self, timeout_seconds: float) -> List[CancellationResult]:
-    #     """
-    #     Cancels all currently active orders. The cancellations are performed in parallel tasks.
-    #     :param timeout_seconds: the maximum time (in seconds) the cancel logic should run
-    #     :return: a list of CancellationResult instances, one for each of the orders to be cancelled
-    #     """
-    #     incomplete_orders = [o for o in self.in_flight_orders.values() if not o.is_done]
-    #     tasks = [self._execute_cancel(o.client_order_id) for o in incomplete_orders]
-    #     order_id_set = set([o.client_order_id for o in incomplete_orders])
-    #     successful_cancellations = []
-    #
-    #     try:
-    #         async with timeout(timeout_seconds):
-    #             cancellation_results = await safe_gather(*tasks, return_exceptions=True)
-    #             for cr in cancellation_results:
-    #                 if isinstance(cr, Exception):
-    #                     continue
-    #                 if isinstance(cr, dict) and "orderLinkId" in cr["result"]:
-    #                     client_order_id = cr["result"].get("orderLinkId")
-    #                     order_id_set.remove(client_order_id)
-    #                     successful_cancellations.append(CancellationResult(client_order_id, True))
-    #     except Exception:
-    #         self.logger().network(
-    #             "Unexpected error cancelling orders.",
-    #             exc_info=True,
-    #             app_warning_msg="Failed to cancel order with Bybit. Check API key and network connection."
-    #         )
-    #
-    #     failed_cancellations = [CancellationResult(oid, False) for oid in order_id_set]
-    #     return successful_cancellations + failed_cancellations
+    def cancel(self, trading_pair: str, client_order_id: str):
+        """
+        Creates a promise to cancel an order in the exchange
+        :param trading_pair: the trading pair the order to cancel operates with
+        :param order_id: the client id of the order to cancel
+        :return: the client id of the order to cancel
+        """
+        safe_ensure_future(self._execute_cancel(client_order_id))
+        return client_order_id
 
-    # async def _create_order(self,
-    #                         trade_type: TradeType,
-    #                         order_id: str,
-    #                         trading_pair: str,
-    #                         amount: Decimal,
-    #                         order_type: OrderType,
-    #                         price: Optional[Decimal] = Decimal("NaN")):
-    #     """
-    #     Creates an order in the exchange using the parameters to configure it
-    #     :param trade_type: the side of the order (BUY of SELL)
-    #     :param order_id: the id that should be assigned to the order (the client id)
-    #     :param trading_pair: the token pair to operate with
-    #     :param amount: the order amount
-    #     :param order_type: the type of order to create (MARKET, LIMIT, LIMIT_MAKER)
-    #     :param price: the order price
-    #     """
-    #     trading_rule: TradingRule = self._trading_rules[trading_pair]
-    #     price = self.quantize_order_price(trading_pair, price)
-    #     quantize_amount_price = Decimal("0") if price.is_nan() else price
-    #     amount = self.quantize_order_amount(trading_pair=trading_pair, amount=amount, price=quantize_amount_price)
-    #
-    #     self.start_tracking_order(
-    #         order_id=order_id,
-    #         exchange_order_id=None,
-    #         trading_pair=trading_pair,
-    #         trade_type=trade_type,
-    #         price=price,
-    #         amount=amount,
-    #         order_type=order_type)
-    #
-    #     if amount < trading_rule.min_order_size:
-    #         self.logger().warning(f"{trade_type.name.title()} order amount {amount} is lower than the minimum order"
-    #                               f" size {trading_rule.min_order_size}. The order will not be created.")
-    #         order_update: OrderUpdate = OrderUpdate(
-    #             client_order_id=order_id,
-    #             trading_pair=trading_pair,
-    #             update_timestamp=self.current_timestamp,
-    #             new_state=OrderState.FAILED,
-    #         )
-    #         self._order_tracker.process_order_update(order_update)
-    #         return
-    #
-    #     order_result = None
-    #     amount_str = f"{amount:f}"
-    #     price_str = f"{price:f}"
-    #     type_str = self.bybit_order_type(order_type)
-    #
-    #     side_str = CONSTANTS.SIDE_BUY if trade_type is TradeType.BUY else CONSTANTS.SIDE_SELL
-    #     symbol = await BybitAPIOrderBookDataSource.exchange_symbol_associated_to_pair(
-    #         trading_pair=trading_pair,
-    #         domain=self._domain,
-    #         api_factory=self._api_factory,
-    #         throttler=self._throttler,
-    #         time_synchronizer=self._time_synchronizer)
-    #     api_params = {"symbol": symbol,
-    #                   "side": side_str,
-    #                   "qty": amount_str,
-    #                   "type": type_str,
-    #                   "orderLinkId": order_id}
-    #     if order_type != OrderType.MARKET:
-    #         api_params["price"] = price_str
-    #     if order_type == OrderType.LIMIT:
-    #         api_params["timeInForce"] = CONSTANTS.TIME_IN_FORCE_GTC
-    #
-    #     try:
-    #         order_result = await self._api_request(
-    #             method=RESTMethod.POST,
-    #             path_url=CONSTANTS.ORDER_PATH_URL,
-    #             params=api_params,
-    #             is_auth_required=True,
-    #             referer_header_required=True)
-    #
-    #         exchange_order_id = str(order_result["result"]["orderId"])
-    #
-    #         order_update: OrderUpdate = OrderUpdate(
-    #             client_order_id=order_id,
-    #             exchange_order_id=exchange_order_id,
-    #             trading_pair=trading_pair,
-    #             update_timestamp=int(order_result["result"]["transactTime"]) * 1e-3,
-    #             new_state=OrderState.OPEN,
-    #         )
-    #         self._order_tracker.process_order_update(order_update)
-    #
-    #     except asyncio.CancelledError:
-    #         raise
-    #     except Exception as e:
-    #         self.logger().network(
-    #             f"Error submitting {side_str} {type_str} order to Bybit for "
-    #             f"{amount} {trading_pair} "
-    #             f"{price}.",
-    #             exc_info=True,
-    #             app_warning_msg=str(e)
-    #         )
-    #         order_update: OrderUpdate = OrderUpdate(
-    #             client_order_id=order_id,
-    #             trading_pair=trading_pair,
-    #             update_timestamp=self.current_timestamp,
-    #             new_state=OrderState.FAILED,
-    #         )
-    #         self._order_tracker.process_order_update(order_update)
+    async def cancel_all(self, timeout_seconds: float) -> List[CancellationResult]:
+        """
+        Cancels all currently active orders. The cancellations are performed in parallel tasks.
+        :param timeout_seconds: the maximum time (in seconds) the cancel logic should run
+        :return: a list of CancellationResult instances, one for each of the orders to be cancelled
+        """
+        incomplete_orders = [o for o in self.in_flight_orders.values() if not o.is_done]
+        tasks = [self._execute_cancel(o.client_order_id) for o in incomplete_orders]
+        order_id_set = set([o.client_order_id for o in incomplete_orders])
+        successful_cancellations = []
 
-    # async def _execute_cancel(self, client_order_id: str) -> Dict[str, Any]:
-    #     """
-    #     Requests the exchange to cancel an active order
-    #     :param client_order_id: the client id of the order to cancel
-    #     """
-    #     tracked_order = self._order_tracker.fetch_tracked_order(client_order_id)
-    #     if tracked_order is not None:
-    #         try:
-    #             api_params = {
-    #                 "orderLinkId": client_order_id,
-    #             }
-    #             cancel_result = await self._api_request(
-    #                 method=RESTMethod.DELETE,
-    #                 path_url=CONSTANTS.ORDER_PATH_URL,
-    #                 params=api_params,
-    #                 is_auth_required=True)
-    #
-    #             order_update: OrderUpdate = OrderUpdate(
-    #                 client_order_id=client_order_id,
-    #                 trading_pair=tracked_order.trading_pair,
-    #                 update_timestamp=self.current_timestamp,
-    #                 new_state=OrderState.CANCELED,
-    #             )
-    #             self._order_tracker.process_order_update(order_update)
-    #             return cancel_result
-    #
-    #         except asyncio.CancelledError:
-    #             raise
-    #         except Exception:
-    #             self.logger().network(
-    #                 f"There was a an error when requesting cancellation of order {client_order_id}")
-    #             raise
+        try:
+            async with timeout(timeout_seconds):
+                cancellation_results = await safe_gather(*tasks, return_exceptions=True)
+                for cr in cancellation_results:
+                    if isinstance(cr, Exception):
+                        continue
+                    if isinstance(cr, dict) and "orderLinkId" in cr["result"]:
+                        client_order_id = cr["result"].get("orderLinkId")
+                        order_id_set.remove(client_order_id)
+                        successful_cancellations.append(CancellationResult(client_order_id, True))
+        except Exception:
+            self.logger().network(
+                "Unexpected error cancelling orders.",
+                exc_info=True,
+                app_warning_msg="Failed to cancel order with Bybit. Check API key and network connection."
+            )
+        failed_cancellations = [CancellationResult(oid, False) for oid in order_id_set]
+        return successful_cancellations + failed_cancellations
+
+    async def _create_order(self,
+                            trade_type: TradeType,
+                            order_id: str,
+                            trading_pair: str,
+                            amount: Decimal,
+                            order_type: OrderType,
+                            price: Optional[Decimal] = Decimal("NaN")):
+        """
+        Creates an order in the exchange using the parameters to configure it
+        :param trade_type: the side of the order (BUY of SELL)
+        :param order_id: the id that should be assigned to the order (the client id)
+        :param trading_pair: the token pair to operate with
+        :param amount: the order amount
+        :param order_type: the type of order to create (MARKET, LIMIT, LIMIT_MAKER)
+        :param price: the order price
+        """
+        trading_rule: TradingRule = self._trading_rules[trading_pair.lower()]
+        price = self.quantize_order_price(trading_pair, price)
+        quantize_amount_price = Decimal("0") if price.is_nan() else price
+        amount = self.quantize_order_amount(trading_pair=trading_pair, amount=amount, price=quantize_amount_price)
+        self.start_tracking_order(
+            order_id=order_id,
+            exchange_order_id=None,
+            trading_pair=trading_pair,
+            trade_type=trade_type,
+            price=price,
+            amount=amount,
+            order_type=order_type)
+        if amount < trading_rule.min_order_size:
+            self.logger().warning(f"{trade_type.name.title()} order amount {amount} is lower than the minimum order"
+                                  f" size {trading_rule.min_order_size}. The order will not be created.")
+            order_update: OrderUpdate = OrderUpdate(
+                client_order_id=order_id,
+                trading_pair=trading_pair,
+                update_timestamp=self.current_timestamp,
+                new_state=OrderState.FAILED,
+            )
+            self._order_tracker.process_order_update(order_update)
+            return
+        order_result = None
+        amount_str = f"{amount:f}"
+        price_str = f"{price:f}"
+        type_str = self.bybit_order_type(order_type)
+
+        side_str = CONSTANTS.SIDE_BUY if trade_type is TradeType.BUY else CONSTANTS.SIDE_SELL
+        symbol = await UltradeAPIOrderBookDataSource.exchange_symbol_associated_to_pair(
+            trading_pair=trading_pair,
+            domain=self._domain,
+            api_factory=self._api_factory,
+            throttler=self._throttler,
+            time_synchronizer=self._time_synchronizer)
+        api_params = {"symbol": symbol,
+                      "side": side_str,
+                      "qty": amount_str,
+                      "type": type_str,
+                      "orderLinkId": order_id}
+        if order_type != OrderType.MARKET:
+            api_params["price"] = price_str
+        if order_type == OrderType.LIMIT:
+            api_params["timeInForce"] = CONSTANTS.TIME_IN_FORCE_GTC
+        try:
+            order_result = await self._api_request(
+                method=RESTMethod.POST,
+                path_url=CONSTANTS.ORDER_PATH_URL,
+                params=api_params,
+                is_auth_required=True,
+                referer_header_required=True)
+            exchange_order_id = str(order_result["result"]["orderId"])
+            order_update: OrderUpdate = OrderUpdate(
+                client_order_id=order_id,
+                exchange_order_id=exchange_order_id,
+                trading_pair=trading_pair,
+                update_timestamp=int(order_result["result"]["transactTime"]) * 1e-3,
+                new_state=OrderState.OPEN,
+            )
+            self._order_tracker.process_order_update(order_update)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.logger().network(
+                f"Error submitting {side_str} {type_str} order to Bybit for "
+                f"{amount} {trading_pair} "
+                f"{price}.",
+                exc_info=True,
+                app_warning_msg=str(e)
+            )
+            order_update: OrderUpdate = OrderUpdate(
+                client_order_id=order_id,
+                trading_pair=trading_pair,
+                update_timestamp=self.current_timestamp,
+                new_state=OrderState.FAILED,
+            )
+            self._order_tracker.process_order_update(order_update)
+
+    async def _execute_cancel(self, client_order_id: str) -> Dict[str, Any]:
+        """
+        Requests the exchange to cancel an active order
+        :param client_order_id: the client id of the order to cancel
+        """
+        tracked_order = self._order_tracker.fetch_tracked_order(client_order_id)
+        if tracked_order is not None:
+            try:
+                api_params = {
+                    "orderLinkId": client_order_id,
+                }
+                cancel_result = await self._api_request(
+                    method=RESTMethod.DELETE,
+                    path_url=CONSTANTS.ORDER_PATH_URL,
+                    params=api_params,
+                    is_auth_required=True)
+                order_update: OrderUpdate = OrderUpdate(
+                    client_order_id=client_order_id,
+                    trading_pair=tracked_order.trading_pair,
+                    update_timestamp=self.current_timestamp,
+                    new_state=OrderState.CANCELED,
+                )
+                self._order_tracker.process_order_update(order_update)
+                return cancel_result
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.logger().network(
+                    f"There was a an error when requesting cancellation of order {client_order_id}")
+                raise
 
     async def _status_polling_loop(self):
         """
@@ -713,10 +699,10 @@ class UltradeExchange(ExchangeBase):
                 min_notional_size = rule.get("min_order_size")
                 retval.append(
                     TradingRule(trading_pair,
-                                min_order_size=Decimal(min_order_size),
-                                min_price_increment=Decimal(min_price_increment),
-                                min_base_amount_increment=Decimal(min_base_amount_increment),
-                                min_notional_size=Decimal(min_notional_size)))
+                                min_order_size=Decimal(str(min_order_size)),
+                                min_price_increment=Decimal(str(min_price_increment)),
+                                min_base_amount_increment=Decimal(str(min_base_amount_increment)),
+                                min_notional_size=Decimal(str(min_notional_size))))
 
             except Exception:
                 self.logger().exception(f"Error parsing the trading pair rule {rule.get('name')}. Skipping.")
@@ -853,13 +839,16 @@ class UltradeExchange(ExchangeBase):
         myalgo_wallet = self.get_myalgo_wallet_info()
 
         balances = self.account_info(account_info, pairs, myalgo_wallet)
-
         for balance_entry in balances:
             print('balance_entry ', balance_entry)
             base_currency = balance_entry['base_currency']
             base_available = balance_entry['base_available']
+            base_total = balance_entry['base_total']
             price_currency = balance_entry['price_currency']
             price_available = balance_entry['price_available']
+            price_total = balance_entry['price_total']
+            self._account_available_balances[base_currency] = base_total
+            self._account_available_balances[price_currency] = price_total
             self._account_balances[base_currency] = base_available
             self._account_balances[price_currency] = price_available
             remote_asset_names.update(base_currency, price_currency)
@@ -921,9 +910,11 @@ class UltradeExchange(ExchangeBase):
                             price_wallet_amount = [d[pair['price_currency']] for d in myalgo_wallet if pair['price_currency'] in d][0]
 
                             balance_data['base_locked'] = self.amount_formate(decoded_balances['baseCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
-                            balance_data['base_available'] = self.amount_formate(decoded_balances['baseCoin_available'] + base_wallet_amount, balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                            balance_data['base_available'] = self.amount_formate(decoded_balances['baseCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                            balance_data['base_total'] = self.amount_formate(decoded_balances['baseCoin_available'] + base_wallet_amount, balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
                             balance_data['price_locked'] = self.amount_formate(decoded_balances['priceCoin_locked'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
-                            balance_data['price_available'] = self.amount_formate(decoded_balances['priceCoin_available'] + price_wallet_amount, balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                            balance_data['price_available'] = self.amount_formate(decoded_balances['priceCoin_available'], balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
+                            balance_data['price_total'] = self.amount_formate(decoded_balances['priceCoin_available'] + price_wallet_amount, balance_data["base_decimal"], CONSTANTS.GLOWL_DECIMAL)
 
                             balances.append(balance_data)
                     except Exception as e:
