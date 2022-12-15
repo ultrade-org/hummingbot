@@ -66,7 +66,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         Return a dictionary the trading_pair as key and the current price as value for each trading pair passed as
         parameter
         :param trading_pairs: list of trading pairs to get the prices for
-        :param domain: which Bybit domain we are connecting to (the default value is 'bybit_main')
+        :param domain: which ultrade domain we are connecting to (the default value is 'ultrade')
         :param api_factory: the instance of the web assistant factory to be used when doing requests to the server.
             If no instance is provided then a new one will be created.
         :param throttler: the instance of the throttler to use to limit request to the server. If it is not specified
@@ -201,14 +201,14 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             exchange
         :return: list of trading pairs in client notation
         """
-        mapping = await UltradeAPIOrderBookDataSource.trading_pair_symbol_map(
+        mapped_pairs = await UltradeAPIOrderBookDataSource.trading_pair_symbol_map(
             domain=domain,
             throttler=throttler,
             api_factory=api_factory,
             time_synchronizer=time_synchronizer,
-        )
-        print('fetch_trading_pairs ', list(mapping.values()))
-        return list(mapping.values())
+    )
+        
+        return list(mapped_pairs.values())
 
     async def get_new_order_book(self, trading_pair: str) -> OrderBook:
         """

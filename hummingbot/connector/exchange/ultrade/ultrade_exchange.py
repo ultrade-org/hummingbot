@@ -179,7 +179,7 @@ class UltradeExchange(ExchangeBase):
         - The background task to process the events received through the user stream tracker (websocket connection)
         """
         self._order_book_tracker.start()
-        print('START ')
+        print('START NETWORK')
         self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
         if self._trading_required:
             self._status_polling_task = safe_ensure_future(self._status_polling_loop())
@@ -920,10 +920,11 @@ class UltradeExchange(ExchangeBase):
                     except Exception as e:
                         print(f"There is no pairs with such app_id: {state['id']}")
                         print(e)
+            print(1)
             return balances
 
         else:
-            print('FALSE')
+            print('(ULTRADE) apps-local-state field is not in user account')
 
     def amount_value_format(self, amount, decimal):
         if amount > 0:
@@ -1080,13 +1081,17 @@ class UltradeExchange(ExchangeBase):
         await asyncio.sleep(delay)
 
     async def all_trading_pairs(self) -> List[str]:
+        
         # This method should be removed and instead we should implement _initialize_trading_pair_symbol_map
-        return await UltradeAPIOrderBookDataSource.fetch_trading_pairs(
+        pairs = await UltradeAPIOrderBookDataSource.fetch_trading_pairs(
             domain=self._domain,
             throttler=self._throttler,
             api_factory=self._api_factory,
             time_synchronizer=self._time_synchronizer,
         )
+        pair_names = [pair['pair_name'] for pair in pairs]
+        print("return all trading pairs", pair_names )
+        return pair_names
 
     async def get_last_traded_prices(self, trading_pairs: List[str]) -> Dict[str, float]:
         # This method should be removed and instead we should implement _get_last_traded_price
