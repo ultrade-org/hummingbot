@@ -847,11 +847,12 @@ class UltradeExchange(ExchangeBase):
             price_currency = balance_entry['price_currency']
             price_available = balance_entry['price_available']
             price_total = balance_entry['price_total']
-            self._account_available_balances[base_currency] = base_total
-            self._account_available_balances[price_currency] = price_total
-            self._account_balances[base_currency] = base_available
-            self._account_balances[price_currency] = price_available
+            self._account_available_balances[base_currency] = base_available
+            self._account_available_balances[price_currency] = price_available
+            self._account_balances[base_currency] = base_total
+            self._account_balances[price_currency] = price_total
             remote_asset_names.update(base_currency, price_currency)
+        print("hello")
 
     async def _get_pairs(self):
         pair_req_body = {'address': self._auth.wallet_address}
