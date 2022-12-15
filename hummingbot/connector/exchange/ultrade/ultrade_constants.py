@@ -6,6 +6,13 @@ ACC_DOMAIN = "acc"
 # DEV_DOMAIN
 # BASE URL
 
+HBOT_ORDER_ID_PREFIX = "ULTRADE-"
+MAX_ORDER_ID_LEN = 32
+HBOT_BROKER_ID = "Hummingbot"
+
+SIDE_BUY = "BUY"
+SIDE_SELL = "SELL"
+
 # REST_URL = "http://node3.testnet.ultradedev.net:8980/"
 REST_URL = 'https://indexer.testnet.algoexplorerapi.io/'
 
