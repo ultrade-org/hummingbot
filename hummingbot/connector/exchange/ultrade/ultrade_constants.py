@@ -2,7 +2,7 @@ from hummingbot.core.api_throttler.data_types import LinkedLimitWeightPair, Rate
 from hummingbot.core.data_type.in_flight_order import OrderState
 
 DEFAULT_DOMAIN = "ultrade"
-ACC_DOMAIN = "acc"
+ALGO_DOMAIN = "algo"
 # DEV_DOMAIN
 # BASE URL
 
@@ -83,7 +83,7 @@ ACCOUNT_URL_ATTRIBUTE = '?include-all=true'
 # SERVER_TIME_PATH_URL = "/time"
 #
 # MY_TRADES_PATH_URL = "/myTrades"
-# ORDER_PATH_URL = "/order"
+ORDER_PATH_URL = "/order"
 
 RATE_LIMITS = [
     # Pools

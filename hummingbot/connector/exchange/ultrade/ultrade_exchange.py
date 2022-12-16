@@ -540,7 +540,7 @@ class UltradeExchange(ExchangeBase):
             raise
         except Exception as e:
             self.logger().network(
-                f"Error submitting {side_str} {type_str} order to Bybit for "
+                f"Error submitting {side_str} {type_str} order to Ultrade for "
                 f"{amount} {trading_pair} "
                 f"{price}.",
                 exc_info=True,
@@ -830,7 +830,7 @@ class UltradeExchange(ExchangeBase):
         account_info = await self._api_request(
             method=RESTMethod.GET,
             path_url=CONSTANTS.ACCOUNTS_PATH_URL,
-            domain=CONSTANTS.ACC_DOMAIN,
+            domain=CONSTANTS.ALGO_DOMAIN,
             wallet_address=self._auth.wallet_address,
             is_auth_required=True)
 
@@ -1082,7 +1082,6 @@ class UltradeExchange(ExchangeBase):
         await asyncio.sleep(delay)
 
     async def all_trading_pairs(self) -> List[str]:
-        
         # This method should be removed and instead we should implement _initialize_trading_pair_symbol_map
         pairs = await UltradeAPIOrderBookDataSource.fetch_trading_pairs(
             domain=self._domain,
@@ -1091,7 +1090,7 @@ class UltradeExchange(ExchangeBase):
             time_synchronizer=self._time_synchronizer,
         )
         pair_names = [pair['pair_name'] for pair in pairs]
-        print("return all trading pairs", pair_names )
+        print("return all trading pairs", pair_names)
         return pair_names
 
     async def get_last_traded_prices(self, trading_pairs: List[str]) -> Dict[str, float]:
