@@ -21,7 +21,7 @@ class UltradeSDK ():
 
     def __init__(self,
                  auth_credentials: Dict[str, Any],
-                 options
+                 options: Dict[str, Any]
                  ):
         if options["network"] == "mainnet":
             self.server = ''
@@ -53,58 +53,86 @@ class UltradeSDK ():
     def create_order(self, order):
         if self.mnemonic or self.signer:
             txnGroup = []
-            senderAddress = None
+
+            # sender_address = None
             if self.mnemonic:
                 key = mnemonic.to_private_key(self.mnemonic)
                 sender_address = account.address_from_private_key(key)
             else:
-                senderAddress = order.sender
+                sender_address = order.sender
 
+            address = account.address_from_private_key(key)
             params = self._get_transaction_params()
 
-            contract_address
-            account_info = self.get_balance_and_state()
+            contract_address = self.client.application_info(order.get("app_id"))
 
-            if self.is_asset_opted_in(account_info.balances, order.base_asset_index) is False:
-                txnGroup
-            if self.is_asset_opted_in(account_info.balances, order.base_asset_index) is False:
-                txnGroup.append(self.opt_in_asset(sender_address, order.base_asset_index))
+            account_info = self.get_balance_and_state(address)
+            #print("account_info", account_info)
+            if self._is_asset_opted_in(account_info.get("balances"), order["base_asset_index"]) is False:
+                print("asset is not oted in")
+                self._opt_in_asset(sender_address, order["base_asset_index"])
+            if self._is_asset_opted_in(account_info.get("balances"), order["price_asset_index"]) is False:
+                print("price_asset_index is not opted in")
+                self._opt_in_asset(sender_address, order["price_asset_index"])
 
-            try:
-                confirmed_txn = transaction.wait_for_confirmation(algod_client, txid, 4)
-            except Exception as err:
-                print(err)
+            if self._is_app_opted_in(order.app_id, sender_address) is False:
+                print("app is not opted in")
+                self._opt_in_app(order.app_id, sender_address)
+
+            # confirmed_txn = transaction.wait_for_confirmation(algod_client, txid, 4)
+            asset_index = order.base_asset_index or order.price_asset_index  # todo replace
+            self.make_transfer_transaction(asset_index, order.transfer_amount, sender_address, contract_address)
+            self.call_app(asset_index, [], sender_address, order.app_id)
+
+            if self.mnemonic:
+                pass
+            else:
+                print("return")
                 return
-
-            print("Transaction information: {}".format(
-                json.dumps(confirmed_txn, indent=4)))
-            print("Decoded note: {}".format(base64.b64decode(
-                confirmed_txn["txn"]["txn"]["note"]).decode()))
-
-            print("Starting Account balance: {} microAlgos".format(account_info.get('amount')))
-            print("Amount transferred: {} microAlgos".format(amount))
-            print("Fee: {} microAlgos".format(params.fee))
-
-            print("Final Account balance: {} microAlgos".format(account_info.get('amount')) + "\n")
         else:
             raise "You need to specify mnemonic or signer to execute method"
 
-    def _prepare_app_call_transaction(self, suggested_params, asset_index, app_args, sender_address, app_id):
-        suggested_params = algod_client.suggested_params()
+    def call_app(self, asset_index, app_args, sender_address, app_id):
+        suggested_params = self._get_transaction_params()
         accounts = []
-        foreign_apps = []
-        foreign_assets = [asset_index]
+        # foreign_apps = []
+        # foreign_assets = [asset_index]
         # params.flat_fee = True
         # params.fee = constants.MIN_TXN_FEE
+        # foreign_apps, foreign_assets
+        txn = transaction.ApplicationNoOpTxn(sender_address, suggested_params, app_id, app_args, accounts)
 
-        txn = transaction.ApplicationNoOpTxn(sender_address, suggested_params, app_id, app_args, accounts, foreign_apps, foreign_assets)
+        signed_txn = txn.sign(self.client_secret)
+        tx_id = signed_txn.transaction.get_txid()
 
-        return txn
+        self.client.send_transactions([signed_txn])
 
-    def _prepare_transfer_transaction(self, params, assetIndex, transferAmount, senderAddress, appAddress):
+        try:
+            transaction_response = transaction.wait_for_confirmation(self.client, tx_id, 5)
+            print("TXID: ", tx_id)
+            print("Result confirmed in round: {}".format(transaction_response['confirmed-round']))
+
+        except Exception as err:
+            print(err)
+            return
+        print("Application called")
+
+    def make_transfer_transaction(self, assetIndex, transferAmount, appAddress):
         txn_payment = None
+        suggested_params = self._get_transaction_params()
         if transferAmount <= 0:
             return txn_payment
+
+        print("Sending a transaction")
+        txn = transaction.AssetTransferTxn(
+            order.sender,
+            self._get_transaction_params(),
+            appAddress,
+            order.transfer_amount,
+            assetIndex
+        )
+        signed_txn = txn.sign(self.client_secret)
+        self.client.send_transaction(signed_txn)
 
         if assetIndex == 0:
             txn_payment
@@ -114,10 +142,10 @@ class UltradeSDK ():
     def _encode_app_args(self, side, type, price, quantity, partnerAppId):
         return []
 
-    def get_balance_and_state(self, account: str) -> Dict[int, int]:
-        balances: Dict[int, int] = dict()
+    def get_balance_and_state(self, address) -> Dict[str, int]:
+        balances: Dict[str, int] = dict()
 
-        account_info = self.client.account_info(account)
+        account_info = self.client.account_info(address)
 
         # set key 0 to Algo balance
         balances[0] = account_info["amount"]
@@ -130,20 +158,20 @@ class UltradeSDK ():
 
         return {"balances": balances, "local_state": account_info.get('apps-local-state')}
 
-    def is_asset_opted_in(self, balances: Dict[str, str], asset_id: int):
+    def _is_asset_opted_in(self, balances: Dict[str, str], asset_id: int):
         for key in balances:
             if key == str(asset_id):
                 return True
         return False
 
-    def opt_in_asset(self, sender, asset_id):
+    def _opt_in_asset(self, sender, asset_id):
         if asset_id:
             key = self._get_private_key()
 
             txn_group = [transaction.AssetTransferTxn(
-                sender.get_address(),
+                sender,
                 self._get_transaction_params(),
-                sender.get_address(),
+                sender,
                 0,
                 asset_id)]
 
@@ -152,20 +180,20 @@ class UltradeSDK ():
             # asa_id = 0 - which means ALGO
             pass
 
-    def is_app_opted_in(self, app_id: int, account):
-        account_info = self.client.account_info(account.get_address())
+    def _is_app_opted_in(self, app_id: int, account_address):
+        account_info = self.client.account_info(account_address)
         for a in account_info.get('apps-local-state', []):
             if a['id'] == app_id:
                 return True
         return False
 
-    def opt_in_app(self, sender, app_id: int):
+    def _opt_in_app(self, app_id: int, sender_address):
         txn = transaction.ApplicationOptInTxn(
-            sender.get_address(),
+            sender_address,
             self._get_transaction_params(),
             app_id
         )
-        signed_txn = txn.sign(sender.get_private_key())
+        signed_txn = txn.sign(self.client_secret)
         tx_id = self.client.send_transaction(signed_txn)
         self.wait_for_transaction(tx_id)
 
@@ -212,4 +240,16 @@ creds = {"mnemonic": TEST_MNEMONIC_KEY}
 opts = {"network": "testnet", "algo_sdk_client": algod_client, "api_url": None}
 
 ultradeSdk = UltradeSDK(creds, opts)
-ultradeSdk.transaction(address, key, account_info)
+order = {
+    "app_id": 92958457,  # algo-usdt
+    "side": 'S',
+    "type": "0",
+    "quantity": 10,
+    "price": 800,
+    "transfer_amount": 10,
+    "base_asset_index": 0,
+    "price_asset_index": 81981957,
+    "sender": address,
+    "partner_app_id": "87654321"
+}
+ultradeSdk.create_order(order)
