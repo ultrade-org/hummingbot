@@ -68,12 +68,7 @@ class UltradeSDK ():
             if self.is_asset_opted_in(account_info.balances, order.base_asset_index) is False:
                 txnGroup
             if self.is_asset_opted_in(account_info.balances, order.base_asset_index) is False:
-                txnGroup.append(self.asset_opt_in(sender_address, order.base_asset_index))
-
-            signed_txn = unsigned_txn.sign(key)
-
-            txid = algod_client.send_transaction(signed_txn)
-            print("Signed transaction with txID: {}".format(txid))
+                txnGroup.append(self.opt_in_asset(sender_address, order.base_asset_index))
 
             try:
                 confirmed_txn = transaction.wait_for_confirmation(algod_client, txid, 4)
@@ -141,7 +136,7 @@ class UltradeSDK ():
                 return True
         return False
 
-    def asset_opt_in(self, sender, asset_id):
+    def opt_in_asset(self, sender, asset_id):
         if asset_id:
             key = self._get_private_key()
 
@@ -156,6 +151,23 @@ class UltradeSDK ():
         else:
             # asa_id = 0 - which means ALGO
             pass
+
+    def is_app_opted_in(self, app_id: int, account):
+        account_info = self.client.account_info(account.get_address())
+        for a in account_info.get('apps-local-state', []):
+            if a['id'] == app_id:
+                return True
+        return False
+
+    def opt_in_app(self, sender, app_id: int):
+        txn = transaction.ApplicationOptInTxn(
+            sender.get_address(),
+            self._get_transaction_params(),
+            app_id
+        )
+        signed_txn = txn.sign(sender.get_private_key())
+        tx_id = self.client.send_transaction(signed_txn)
+        self.wait_for_transaction(tx_id)
 
     def _get_transaction_params(self):
         return self.client.suggested_params()
@@ -192,7 +204,7 @@ class UltradeSDK ():
             last_round += 1
 
         raise Exception(
-            "Transaction {} not confirmed after {} rounds".format(txID, timeout)
+            "Transaction {} not confirmed after {} rounds".format(tx_id, timeout)
         )
 
 
