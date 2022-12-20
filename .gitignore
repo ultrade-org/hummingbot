@@ -115,6 +115,7 @@ coverage.xml
 
 /conf_backup
 
-# Ultrade test folder
+# Ultrade 
 
 /hummingbot/connector/exchange/ultrade_test
+/hummingbot/connector/exchange/ultrade/test_credentials.py

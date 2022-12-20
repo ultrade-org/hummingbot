@@ -10,12 +10,17 @@ HBOT_ORDER_ID_PREFIX = "ULTRADE-"
 MAX_ORDER_ID_LEN = 32
 HBOT_BROKER_ID = "Hummingbot"
 
+TIME_IN_FORCE_GTC = 'GTC'         # Good till cancelled
+TIME_IN_FORCE_IOC = 'IOC'         # Immediate or cancel
+TIME_IN_FORCE_FOK = 'FOK'         # Fill or kill
+TIME_IN_FORCE_MAK = 'MAKER_ONLY'  # Maker
+
 SIDE_BUY = "BUY"
 SIDE_SELL = "SELL"
 
 # REST_URL = "http://node3.testnet.ultradedev.net:8980/"
 REST_URL = 'https://indexer.testnet.algoexplorerapi.io/'
-
+'https://node.testnet.algoexplorerapi.io'
 REST_URLS = {"acc": "https://indexer.testnet.algoexplorerapi.io",
              "ultrade": "https://dev-apigw.ultradedev.net"}
 
