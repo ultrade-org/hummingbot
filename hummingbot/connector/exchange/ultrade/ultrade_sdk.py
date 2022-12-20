@@ -69,20 +69,20 @@ class UltradeSDK ():
             account_info = self.get_balance_and_state(address)
             #print("account_info", account_info)
             if self._is_asset_opted_in(account_info.get("balances"), order["base_asset_index"]) is False:
-                print("asset is not oted in")
+                print("asset is not opted in")
                 self._opt_in_asset(sender_address, order["base_asset_index"])
             if self._is_asset_opted_in(account_info.get("balances"), order["price_asset_index"]) is False:
                 print("price_asset_index is not opted in")
                 self._opt_in_asset(sender_address, order["price_asset_index"])
 
-            if self._is_app_opted_in(order.app_id, sender_address) is False:
+            if self._is_app_opted_in(order["app_id"], sender_address) is False:
                 print("app is not opted in")
-                self._opt_in_app(order.app_id, sender_address)
+                self._opt_in_app(order["app_id"], sender_address)
 
             # confirmed_txn = transaction.wait_for_confirmation(algod_client, txid, 4)
-            asset_index = order.base_asset_index or order.price_asset_index  # todo replace
-            self.make_transfer_transaction(asset_index, order.transfer_amount, sender_address, contract_address)
-            self.call_app(asset_index, [], sender_address, order.app_id)
+            asset_index = order["base_asset_index"]  # todo replace
+            self.make_transfer_transaction(asset_index, order["transfer_amount"], order)
+            self.call_app(asset_index, [], sender_address, order["app_id"])
 
             if self.mnemonic:
                 pass
@@ -117,27 +117,28 @@ class UltradeSDK ():
             return
         print("Application called")
 
-    def make_transfer_transaction(self, assetIndex, transferAmount, appAddress):
-        txn_payment = None
-        suggested_params = self._get_transaction_params()
-        if transferAmount <= 0:
-            return txn_payment
+    def make_transfer_transaction(self, asset_index, transfer_amount, order):
+        if transfer_amount <= 0:
+            return
 
         print("Sending a transaction")
-        txn = transaction.AssetTransferTxn(
-            order.sender,
-            self._get_transaction_params(),
-            appAddress,
-            order.transfer_amount,
-            assetIndex
-        )
+        if asset_index == 0:
+            txn = transaction.AssetTransferTxn(
+                order["sender"],
+                self._get_transaction_params(),
+                order["app_id"],
+                order["transfer_amount"]
+            )
+        else:
+            txn = transaction.AssetTransferTxn(
+                order["sender"],
+                self._get_transaction_params(),
+                order["app_id"],
+                order["transfer_amount"],
+                asset_index
+            )
         signed_txn = txn.sign(self.client_secret)
         self.client.send_transaction(signed_txn)
-
-        if assetIndex == 0:
-            txn_payment
-        else:
-            txn_payment
 
     def _encode_app_args(self, side, type, price, quantity, partnerAppId):
         return []
@@ -168,14 +169,15 @@ class UltradeSDK ():
         if asset_id:
             key = self._get_private_key()
 
-            txn_group = [transaction.AssetTransferTxn(
+            txn = transaction.AssetTransferTxn(
                 sender,
                 self._get_transaction_params(),
                 sender,
                 0,
-                asset_id)]
+                asset_id)
+            signed_txn = txn.sign(key)
 
-            return self.send_transaction("opt_in", [txn.sign(key) for txn in txn_group])
+            return self.client.send_transaction(signed_txn)
         else:
             # asa_id = 0 - which means ALGO
             pass
@@ -201,15 +203,15 @@ class UltradeSDK ():
         return self.client.suggested_params()
 
     def _get_private_key(self):
-        mnemonic.to_private_key(self.mnemonic)
+        return mnemonic.to_private_key(self.mnemonic)
 
-    def send_transaction(self, name, signed_group):
-        print(f"Sending Transaction for {name}")
-        txid = self.client.send_transactions(signed_group)
-        response = self.wait_for_transaction(txid)
-        print("LOGS:", response.logs)
-        print("LOGINTS:", response.logints)
-        return response
+    # def send_transaction(self, name, signed_group):
+    #     print(f"Sending Transaction for {name}")
+    #     txid = self.client.send_transactions(signed_group)
+        # response = self.wait_for_transaction(txid)
+        # print("LOGS:", response.logs)
+        # print("LOGINTS:", response.logints)
+        # return response
 
     def wait_for_transaction(
         self, tx_id: str, timeout: int = 10
