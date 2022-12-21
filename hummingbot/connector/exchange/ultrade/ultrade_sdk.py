@@ -1,12 +1,12 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
 from random import random
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from algosdk import account, constants, mnemonic
 from algosdk.future import transaction
+from algosdk.logic import get_application_address
 from algosdk.v2client import algod
 from algosdk.v2client.algod import AlgodClient
 from test_credentials import TEST_ALGOD_ADDRESS, TEST_ALGOD_TOKEN, TEST_MNEMONIC_KEY
-from algosdk.logic import get_application_address
 
 key = mnemonic.to_private_key(TEST_MNEMONIC_KEY)
 address = account.address_from_private_key(key)
@@ -69,9 +69,13 @@ class UltradeSDK ():
                 self._opt_in_app(order["app_id"], sender_address)
 
             app_args = self._construct_args_for_app_call(order["side"], order["type"], order["price"], order["quantity"], order["partner_app_id"])
-
             asset_index = order["base_asset_index"] if order["side"] == "S" else order["price_asset_index"]
-            self.make_transfer_transaction(asset_index, order["transfer_amount"], order)
+
+            if asset_index == 0:
+                self.send_payment_transaction(order)
+            else:
+                self.send_transfer_transaction(asset_index, order)
+
             self.call_app(asset_index, app_args, sender_address, order["app_id"])
         else:
             raise "You need to specify mnemonic or signer to execute this method"
@@ -84,7 +88,13 @@ class UltradeSDK ():
         foreign_apps = []
         foreign_assets = [asset_index]
 
-        txn = transaction.ApplicationNoOpTxn(sender_address, suggested_params, 92958595, app_args, accounts, foreign_apps, foreign_assets, str(random()))
+        txn = transaction.ApplicationNoOpTxn(sender_address,
+                                             suggested_params,
+                                             app_id,
+                                             app_args, accounts,
+                                             foreign_apps,
+                                             foreign_assets,
+                                             str(random()))
         key = self._get_private_key()
 
         signed_txn = txn.sign(key)
@@ -101,37 +111,41 @@ class UltradeSDK ():
             return
         print("Application called")
 
-    def make_transfer_transaction(self, asset_index, transfer_amount, order):
+    def send_transfer_transaction(self, asset_index, order):
+        transfer_amount = order["transfer_amount"]
         if transfer_amount <= 0:
             return
 
-        print("Sending a transfer transaction", asset_index)
-        if asset_index == 0:
-            # txn_args = [
-            #     order["sender"],
-            #     self._get_transaction_params(),
-            #     get_application_address(int(order["app_id"])),
-            # ]
+        print("Sending a transfer transaction...", asset_index)
 
-            txn = transaction.AssetTransferTxn(
-                order["sender"],
-                self._get_transaction_params(),
-                get_application_address(int(order["app_id"])),
-                transfer_amount,
-                asset_index
-            )
-        else:
-            txn = transaction.AssetTransferTxn(
-                order["sender"],
-                self._get_transaction_params(),
-                get_application_address(int(order["app_id"])),
-                order["transfer_amount"],
-                asset_index
-            )
+        txn = transaction.AssetTransferTxn(
+            order["sender"],
+            self._get_transaction_params(),
+            get_application_address(int(order["app_id"])),
+            transfer_amount,
+            asset_index
+        )
 
         key = self._get_private_key()
         signed_txn = txn.sign(key)
         self.client.send_transaction(signed_txn)
+
+    def send_payment_transaction(self, order, name="standard transaction"):
+        print("Sending a payment transaction...")
+
+        rcv = get_application_address(int(order["app_id"]))
+        receivers = [rcv] if not isinstance(rcv, list) else rcv
+
+        txn_group = [transaction.PaymentTxn(
+            sender=order["sender"],
+            sp=self._get_transaction_params(),
+            note=str(random()),
+            receiver=receiver,
+            amt=order["transfer_amount"]) for receiver in receivers]
+
+        txn_group = transaction.assign_group_id(txn_group)
+
+        return self.send_transaction(name, self.sign_transaction_grp(txn_group))
 
     def _construct_args_for_app_call(self, side, type, price, quantity, partnerAppId):
         args = ["new_order", side, price, quantity, type, partnerAppId]
@@ -228,8 +242,21 @@ class UltradeSDK ():
             "Transaction {} not confirmed after {} rounds".format(tx_id, timeout)
         )
 
+    def sign_transaction_grp(self, txn_group):
+        key = self._get_private_key()
+        signed_txns = [txn.sign(key) for txn in txn_group]
+        return signed_txns
+
     def cancel_order():
         pass
+
+    def send_transaction(self, name, signed_group):
+        print(f"Sending Transaction for {name}")
+        txid = self.client.send_transactions(signed_group)
+        # response = wait_for_transaction(client, txid)
+        # print("LOGS:", response.logs)
+        # print("login's:", response.logints)
+        return
 
 
 creds = {"mnemonic": TEST_MNEMONIC_KEY}
@@ -240,9 +267,9 @@ order = {
     "app_id": "92958457",  # algo-usdt
     "side": 'S',
     "type": "0",
-    "quantity": 350000000,
-    "price": 800,
-    "transfer_amount": 350000000,
+    "quantity": 2000000,
+    "price": 80000,
+    "transfer_amount": 2000000,
     "base_asset_index": 0,
     "price_asset_index": 81981957,
     "sender": address,
