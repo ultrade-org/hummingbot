@@ -1,5 +1,6 @@
 from random import random
 from typing import Any, Dict, List, Optional, Tuple, Union
+import requests
 
 from algosdk import account, constants, mnemonic
 from algosdk.future import transaction
@@ -51,7 +52,7 @@ class UltradeSDK ():
     def create_order(self, order):
         if self.mnemonic or self.signer:
             if self.mnemonic:
-                key = mnemonic.to_private_key(self.mnemonic)
+                key = self._get_private_key()
                 sender_address = account.address_from_private_key(key)
             else:
                 sender_address = order["sender"]
@@ -80,6 +81,45 @@ class UltradeSDK ():
         else:
             raise "You need to specify mnemonic or signer to execute this method"
 
+    def cancel_order(self, order_id, sender):
+        if self.mnemonic or self.signer:
+            if self.mnemonic:
+                key = self._get_private_key()
+                sender_address = account.address_from_private_key(key)
+            else:
+                sender_address = sender
+                raise "Signer not implemented"
+
+            data = self.get_order_by_id(order_id)
+            print("data!", data)
+            order = 1
+
+            params = self._get_transaction_params()
+            accounts = [sender_address]
+            foreign_apps = []
+            foreign_assets = [order.price_id]
+            app_args = []
+
+            txn = transaction.ApplicationNoOpTxn(sender_address,
+                                                 params,
+                                                 order.application_id,
+                                                 app_args,
+                                                 accounts,
+                                                 foreign_apps,
+                                                 foreign_assets)
+            key = self._get_private_key()
+
+            signed_txn = txn.sign(key)
+            tx_id = signed_txn.transaction.get_txid()
+            self.client.send_transactions([signed_txn])
+        else:
+            raise "You need to specify mnemonic or signer to execute this method"
+
+    def get_order_by_id(self, order_id):
+        url = f"{self.api_url}/market/getOrderById?orderId={order_id}"
+        res = requests.get(url)
+        return res
+
     def call_app(self, asset_index, app_args, sender_address, app_id):
         print("Calling the application...")
 
@@ -91,7 +131,8 @@ class UltradeSDK ():
         txn = transaction.ApplicationNoOpTxn(sender_address,
                                              suggested_params,
                                              app_id,
-                                             app_args, accounts,
+                                             app_args,
+                                             accounts,
                                              foreign_apps,
                                              foreign_assets,
                                              str(random()))
@@ -116,7 +157,7 @@ class UltradeSDK ():
         if transfer_amount <= 0:
             return
 
-        print("Sending a transfer transaction...", asset_index)
+        print(f"Sending a transfer transaction #{asset_index}...")
 
         txn = transaction.AssetTransferTxn(
             order["sender"],
@@ -247,9 +288,6 @@ class UltradeSDK ():
         signed_txns = [txn.sign(key) for txn in txn_group]
         return signed_txns
 
-    def cancel_order():
-        pass
-
     def send_transaction(self, name, signed_group):
         print(f"Sending Transaction for {name}")
         txid = self.client.send_transactions(signed_group)
@@ -262,8 +300,34 @@ class UltradeSDK ():
 creds = {"mnemonic": TEST_MNEMONIC_KEY}
 opts = {"network": "testnet", "algo_sdk_client": algod_client, "api_url": None}
 
-ultradeSdk = UltradeSDK(creds, opts)
-order = {
+ultrade_sdk = UltradeSDK(creds, opts)
+order_1 = {  # algo-usdt
+    "app_id": "92958457",
+    "side": 'S',
+    "type": "0",
+    "quantity": 2000000,
+    "price": 80000,
+    "transfer_amount": 2000000,
+    "base_asset_index": 0,
+    "price_asset_index": 81981957,
+    "sender": address,
+    "partner_app_id": "87654321"
+}
+
+order_2 = {
+    "app_id": "92958595",  # YLDY_STBL
+    "side": 'S',
+    "type": "0",
+    "quantity": 20000000,
+    "price": 800,
+    "transfer_amount": 2000000,
+    "base_asset_index": 81982338,
+    "price_asset_index": 81982268,
+    "sender": address,
+    "partner_app_id": "87654321"
+}
+
+order_3 = {
     "app_id": "92958457",  # algo-usdt
     "side": 'S',
     "type": "0",
@@ -275,4 +339,5 @@ order = {
     "sender": address,
     "partner_app_id": "87654321"
 }
-ultradeSdk.create_order(order)
+ultrade_sdk.create_order(order_2)
+# ultrade_sdk
