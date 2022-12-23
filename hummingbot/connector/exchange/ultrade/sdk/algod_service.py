@@ -136,6 +136,8 @@ class AlgodService:
 
     def sign_transaction_grp(self, txn_group) -> List:
         txn_group = txn_group if isinstance(txn_group, list) else [txn_group]
+        txn_group = transaction.assign_group_id(txn_group)
+
         key = self.get_private_key()
         signed_txns = [txn.sign(key) for txn in txn_group]
 
@@ -157,3 +159,6 @@ class AlgodService:
 
     def _check_is_mnemonic_valid(self):
         return True
+
+    def validate_transaction_order(self):
+        pass

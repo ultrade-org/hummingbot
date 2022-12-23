@@ -40,6 +40,9 @@ class Client ():
         self.company: Optional[str] = auth_credentials.get("company")
         self.client_id: Optional[str] = auth_credentials.get("client_id")
 
+    def get_exchange_info():
+        pass
+
     def connect():
         pass
 
@@ -52,9 +55,9 @@ class Client ():
     def new_order(self, order, on_complete=None):
         if not self.mnemonic:
             raise "You need to specify mnemonic or signer to execute this method"
+        self.client.validate_transaction_order()
 
-        key = self.client.get_private_key()
-        sender_address = account.address_from_private_key(key)
+        sender_address = self.client.get_account_address()
 
         unsigned_txns = []
         account_info = self.client.get_balance_and_state(sender_address)
@@ -78,8 +81,7 @@ class Client ():
 
         unsigned_txns.append(self.client.make_app_call_txn(asset_index, app_args, sender_address, order["app_id"]))
 
-        txn_group = transaction.assign_group_id(unsigned_txns)
-        signed_txns = self.client.sign_transaction_grp(txn_group)
+        signed_txns = self.client.sign_transaction_grp(unsigned_txns)
         tx_id = self.client.send_transaction_grp(signed_txns)
 
         print(f"Order created successfully, order_id: {tx_id}")
@@ -87,10 +89,9 @@ class Client ():
     def cancel_order(self, order_id, on_complete=None):
         if not self.mnemonic:
             raise "You need to specify mnemonic or signer to execute this method"
+        self.client.validate_transaction_order()
 
-        key = self.client.get_private_key()
-        sender_address = account.address_from_private_key(key)
-
+        sender_address = self.client.get_account_address()
         data = self.get_order_by_id(order_id)
 
         order = data[0]
