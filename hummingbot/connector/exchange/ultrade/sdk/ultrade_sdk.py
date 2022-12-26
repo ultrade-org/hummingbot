@@ -64,7 +64,7 @@ class Client ():
         sender_address = self.client.get_account_address()
 
         unsigned_txns = []
-        account_info = self.client.get_balance_and_state(sender_address)
+        account_info = self.get_balance_and_state(sender_address)
 
         if utils.is_asset_opted_in(account_info.get("balances"), info["base_id"]) is False:
             unsigned_txns.append(self.client.opt_in_asset(sender_address, info["base_id"]))
@@ -121,11 +121,27 @@ class Client ():
         # response = [wait_for_transaction(client, tx_id) for tx_id in ids]
         # print(f" >> second txn log >> {response[1].logs}")
 
-    def cancel_all_orders():
+    def get_balance_and_state(self, address) -> Dict[str, int]:
+        balances: Dict[str, int] = dict()
+
+        account_info = self.client.account_info(address)
+
+        balances[0] = account_info["amount"]
+
+        assets: List[Dict[str, Any]] = account_info.get("assets", [])
+        for asset in assets:
+            asset_id = asset["asset-id"]
+            amount = asset["amount"]
+            balances[asset_id] = amount
+
+        return {"balances": balances, "local_state": account_info.get('apps-local-state', [])}
+
+    def cancel_all_orders(self, symbol):
+        self.client
         pass
 
-    def get_open_orders():
+    def subscribe(self):
         pass
 
-    def get_orders():
+    def unsubscribe(self):
         pass

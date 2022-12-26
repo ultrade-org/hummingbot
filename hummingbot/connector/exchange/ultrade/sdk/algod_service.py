@@ -5,12 +5,13 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from algosdk import account, constants, mnemonic
 from algosdk.future import transaction
 from algosdk.logic import get_application_address
+from algosdk.v2client.algod import AlgodClient
 
 
 class AlgodService:
     def __init__(self, client, mnemonic=None):
-        self.client = client
-        self.mnemonic = mnemonic
+        self.client: AlgodClient = client
+        self.mnemonic: str = mnemonic
 
     def make_app_call_txn(self, asset_index, app_args, sender_address, app_id):
         print("Preparing application call txn...")
@@ -62,21 +63,6 @@ class AlgodService:
             amt=transfer_amount)
 
         return txn
-
-    def get_balance_and_state(self, address) -> Dict[str, int]:
-        balances: Dict[str, int] = dict()
-
-        account_info = self.client.account_info(address)
-
-        balances[0] = account_info["amount"]
-
-        assets: List[Dict[str, Any]] = account_info.get("assets", [])
-        for asset in assets:
-            asset_id = asset["asset-id"]
-            amount = asset["amount"]
-            balances[asset_id] = amount
-
-        return {"balances": balances, "local_state": account_info.get('apps-local-state', [])}
 
     def opt_in_asset(self, sender, asset_id):
         if asset_id:
@@ -158,7 +144,7 @@ class AlgodService:
         return address
 
     def _check_is_mnemonic_valid(self):
-        return True
+        return True  # todo
 
     def validate_transaction_order(self):
-        pass
+        pass  # todo
