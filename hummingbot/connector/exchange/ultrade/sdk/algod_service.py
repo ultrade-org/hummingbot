@@ -31,35 +31,35 @@ class AlgodService:
 
         return txn
 
-    def make_transfer_txn(self, asset_index, order):
-        transfer_amount = order["transfer_amount"]
+    def make_transfer_txn(self, asset_index, app_id, sender, transfer_amount):
+
         if transfer_amount <= 0:
             return
 
         print(f"Sending a transfer transaction #{asset_index}...")
 
         txn = transaction.AssetTransferTxn(
-            order["sender"],
+            sender,
             self.get_transaction_params(),
-            get_application_address(int(order["app_id"])),
+            get_application_address(int(app_id)),
             transfer_amount,
             asset_index
         )
 
         return txn
 
-    def make_payment_txn(self, order, name="standard transaction"):
+    def make_payment_txn(self, app_id, sender, transfer_amount):
         print("Sending a payment transaction...")
 
-        rcv = get_application_address(int(order["app_id"]))
+        rcv = get_application_address(int(app_id))
         receiver = rcv[0] if isinstance(rcv, list) else rcv
 
         txn = transaction.PaymentTxn(
-            sender=order["sender"],
+            sender=sender,
             sp=self.get_transaction_params(),
             note=str(random()),
             receiver=receiver,
-            amt=order["transfer_amount"])
+            amt=transfer_amount)
 
         return txn
 
@@ -153,7 +153,7 @@ class AlgodService:
         return txid
 
     def get_account_address(self):
-        key = self.get_private_key
+        key = self.get_private_key()
         address = account.address_from_private_key(key)
         return address
 

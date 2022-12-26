@@ -118,4 +118,4 @@ coverage.xml
 # Ultrade 
 
 /hummingbot/connector/exchange/ultrade_test
-/hummingbot/connector/exchange/ultrade/test_credentials.py
+/hummingbot/connector/exchange/ultrade/sdk/test_credentials.py
