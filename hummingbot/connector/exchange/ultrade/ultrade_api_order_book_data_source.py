@@ -10,6 +10,7 @@ from hummingbot.core.web_assistant.connections.data_types import RESTMethod, WSJ
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 from hummingbot.core.web_assistant.ws_assistant import WSAssistant
 from hummingbot.logger import HummingbotLogger
+from ultrade import socket_options as SOCKET_OPTIONS
 
 if TYPE_CHECKING:
     from hummingbot.connector.exchange.ultrade.ultrade_exchange import UltradeExchange
@@ -31,7 +32,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         super().__init__(trading_pairs)
         self._connector = connector
         self._trade_messages_queue_key = CONSTANTS.TRADE_EVENT_TYPE
-        self._diff_messages_queue_key = CONSTANTS.DIFF_EVENT_TYPE
+        self._snapshot_messages_queue_key = CONSTANTS.SNAPSHOT_EVENT_TYPE
         self._domain = domain
         self._api_factory = api_factory
 
@@ -55,35 +56,19 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
         return data
 
-    async def _subscribe_channels(self, ws: WSAssistant):
+    async def _subscribe_channels_ultrade(self):
         """
         Subscribes to the trade events and diff orders events through the provided websocket connection.
         :param ws: the websocket assistant used to connect to the exchange
         """
         try:
-            trade_params = []
-            depth_params = []
             for trading_pair in self._trading_pairs:
                 symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-                
-                trade_params.append(f"{symbol.lower()}@trade")
-                depth_params.append(f"{symbol.lower()}@depth@100ms")
-            payload = {
-                "method": "SUBSCRIBE",
-                "params": trade_params,
-                "id": 1
-            }
-            subscribe_trade_request: WSJSONRequest = WSJSONRequest(payload=payload)
-
-            payload = {
-                "method": "SUBSCRIBE",
-                "params": depth_params,
-                "id": 2
-            }
-            subscribe_orderbook_request: WSJSONRequest = WSJSONRequest(payload=payload)
-
-            await ws.send(subscribe_trade_request)
-            await ws.send(subscribe_orderbook_request)
+                params = {
+                    'symbol': symbol,
+                    'streams': [SOCKET_OPTIONS.DEPTH, SOCKET_OPTIONS.TRADES],
+                }
+                await self._connector._ultrade_client.subscribe(params, self._process_websocket_messages_ultrade)
 
             self.logger().info("Subscribed to public order book and trade channels...")
         except asyncio.CancelledError:
@@ -95,11 +80,42 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             )
             raise
 
-    async def _connected_websocket_assistant(self) -> WSAssistant:
-        ws: WSAssistant = await self._api_factory.get_ws_assistant()
-        await ws.connect(ws_url=CONSTANTS.WSS_URL.format(self._domain),
-                         ping_timeout=CONSTANTS.WS_HEARTBEAT_TIME_INTERVAL)
-        return ws
+    def _process_websocket_messages_ultrade(self, event: str, *args):
+        # async for ws_response in websocket_assistant.iter_messages():
+        #     data: Dict[str, Any] = ws_response.data
+        #     if data is not None:  # data will be None when the websocket is disconnected
+        #         channel: str = self._channel_originating_message(event_message=data)
+        #         valid_channels = self._get_messages_queue_keys()
+        #         if channel in valid_channels:
+        #             self._message_queue[channel].put_nowait(data)
+        #         else:
+        #             await self._process_message_for_unknown_channel(
+        #                 event_message=data, websocket_assistant=websocket_assistant
+        #             )
+        
+        if event == 'depth':
+            self._message_queue[event].put_nowait(*args)
+
+     async def listen_for_subscriptions(self):
+        """
+        Connects to the trade events and order diffs websocket endpoints and listens to the messages sent by the
+        exchange. Each message is stored in its own queue.
+        """
+        ws: Optional[WSAssistant] = None
+        while True:
+            try:
+                await self._subscribe_channels_ultrade()
+            except asyncio.CancelledError:
+                raise
+            except ConnectionError as connection_exception:
+                self.logger().warning(f"The websocket connection was closed ({connection_exception})")
+            except Exception:
+                self.logger().exception(
+                    "Unexpected error occurred when listening to order book streams. Retrying in 5 seconds...",
+                )
+                await self._sleep(1.0)
+            finally:
+                await self._on_order_stream_interruption(websocket_assistant=ws)
 
     async def _order_book_snapshot(self, trading_pair: str) -> OrderBookMessage:
         snapshot: Dict[str, Any] = await self._request_order_book_snapshot(trading_pair)
@@ -132,3 +148,6 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             channel = (self._diff_messages_queue_key if event_type == CONSTANTS.DIFF_EVENT_TYPE
                        else self._trade_messages_queue_key)
         return channel
+
+    async def _on_order_stream_interruption_ultrade(self):
+        pass
