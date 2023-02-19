@@ -68,8 +68,11 @@ class UltradeExchange(ExchangePyBase):
         }
 
         credentials = {"mnemonic": mnemonic}
-        
+
         self._ultrade_client = UltradeClient(credentials, options)
+        self._ultrade_api = ultrade_api
+        
+        self._conversion_rules = {}
 
         super().__init__(client_config_map)
 
@@ -90,7 +93,7 @@ class UltradeExchange(ExchangePyBase):
 
     @property
     def name(self) -> str:
-        if self._domain == "com":
+        if self._domain == "mainnet":
             return "ultrade"
         else:
             return f"ultrade_{self._domain}"
@@ -182,6 +185,14 @@ class UltradeExchange(ExchangePyBase):
         is_maker = order_type is OrderType.LIMIT_MAKER
         return DeductedFromReturnsTradeFee(percent=self.estimate_fee_pct(is_maker))
 
+    async def _update_trading_rules(self):
+        exchange_info = await self._get_ultrade_trading_pairs ()
+        trading_rules_list = await self._format_trading_rules(exchange_info)
+        self._trading_rules.clear()
+        for trading_rule in trading_rules_list:
+            self._trading_rules[trading_rule.trading_pair] = trading_rule
+        self._initialize_trading_pair_symbols_from_exchange_info(exchange_info=exchange_info)
+
     async def _place_order(self,
                            order_id: str,
                            trading_pair: str,
@@ -227,53 +238,53 @@ class UltradeExchange(ExchangePyBase):
             return True
         return False
 
-    async def _format_trading_rules(self, exchange_info_dict: Dict[str, Any]) -> List[TradingRule]:
+    async def _format_trading_rules(self, exchange_info_list: List[Dict[str, Any]]) -> List[TradingRule]:
         """
         Example:
-        {
-            "symbol": "ETHBTC",
-            "baseAssetPrecision": 8,
-            "quotePrecision": 8,
-            "orderTypes": ["LIMIT", "MARKET"],
-            "filters": [
-                {
-                    "filterType": "PRICE_FILTER",
-                    "minPrice": "0.00000100",
-                    "maxPrice": "100000.00000000",
-                    "tickSize": "0.00000100"
-                }, {
-                    "filterType": "LOT_SIZE",
-                    "minQty": "0.00100000",
-                    "maxQty": "100000.00000000",
-                    "stepSize": "0.00100000"
-                }, {
-                    "filterType": "MIN_NOTIONAL",
-                    "minNotional": "0.00100000"
-                }
-            ]
-        }
+        [
+            {
+                "id": 1,
+                "pairId": 1,
+                "pair_key": "algo_usdc",
+                "is_verified": 1,
+                "application_id": 92138200,
+                "base_currency": "algo",
+                "price_currency": "usdc",
+                "trade_fee_buy": 1000000,
+                "trade_fee_sell": 1000000,
+                "base_id": 0,
+                "price_id": 81981957,
+                "price_decimal": 4,
+                "base_decimal": 6,
+                "is_active": true,
+                "pair_name": "ALGO_USDC",
+                "min_price_increment": 5,
+                "min_order_size": 1000000,
+                "min_size_increment": 1000000,
+                "created_at": "2022-04-19T07:40:42.000Z",
+                "updated_at": "2022-04-19T07:40:42.000Z",
+                "inuseWithPartners": [
+                    12345678
+                ],
+                "restrictedCountries": []
+            },
+        ]
         """
-        trading_pair_rules = exchange_info_dict.get("symbols", [])
         retval = []
-        for rule in filter(ultrade_utils.is_exchange_information_valid, trading_pair_rules):
+        for rule in filter(ultrade_utils.is_exchange_information_valid, exchange_info_list):
             try:
-                trading_pair = await self.trading_pair_associated_to_exchange_symbol(symbol=rule.get("symbol"))
-                filters = rule.get("filters")
-                price_filter = [f for f in filters if f.get("filterType") == "PRICE_FILTER"][0]
-                lot_size_filter = [f for f in filters if f.get("filterType") == "LOT_SIZE"][0]
-                min_notional_filter = [f for f in filters if f.get("filterType") == "MIN_NOTIONAL"][0]
-
-                min_order_size = Decimal(lot_size_filter.get("minQty"))
-                tick_size = price_filter.get("tickSize")
-                step_size = Decimal(lot_size_filter.get("stepSize"))
-                min_notional = Decimal(min_notional_filter.get("minNotional"))
+                trading_pair = await self.trading_pair_associated_to_exchange_symbol(symbol=rule.get("pair_key"))
+                base, quote = list(map(lambda x: x, pair.split("-")))
+                
+                min_order_size = self.from_fixed_point(base, int(rule['min_order_size']))
+                min_price_increment = self.from_fixed_point(quote, int(rule['min_price_increment']))
+                min_base_amount_increment = self.from_fixed_point(base, int(rule['min_size_increment']))
 
                 retval.append(
                     TradingRule(trading_pair,
                                 min_order_size=min_order_size,
-                                min_price_increment=Decimal(tick_size),
-                                min_base_amount_increment=Decimal(step_size),
-                                min_notional_size=Decimal(min_notional)))
+                                min_price_increment=min_price_increment,
+                                min_base_amount_increment=min_base_amount_increment))
 
             except Exception:
                 self.logger().exception(f"Error parsing the trading pair rule {rule}. Skipping.")
@@ -515,40 +526,86 @@ class UltradeExchange(ExchangePyBase):
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
 
-        account_info = await self._api_get(
-            path_url=CONSTANTS.ACCOUNTS_PATH_URL,
-            is_auth_required=True)
+        exchange_info_list = await self._get_ultrade_trading_pairs()
+        pairs = [pair_info.get("pair_key") for pair_info in filter(ultrade_utils.is_exchange_information_valid, exchange_info_list)]
 
-        balances = account_info["balances"]
-        for balance_entry in balances:
-            asset_name = balance_entry["asset"]
-            free_balance = Decimal(balance_entry["free"])
-            total_balance = Decimal(balance_entry["free"]) + Decimal(balance_entry["locked"])
-            self._account_available_balances[asset_name] = free_balance
-            self._account_balances[asset_name] = total_balance
-            remote_asset_names.add(asset_name)
+        tasks = []
+        for pair in pairs:
+            tasks.append(self._ultrade_client.get_balances(pair))
+
+        balances = await safe_gather(*tasks, return_exceptions=True)
+
+        for pair, balance in zip(pairs, balances):
+            base, quote = list(map(lambda x: x.upper(), pair.split("_")))
+
+            if isinstance(balance, Exception):
+                continue
+
+            base_wallet = self.from_fixed_point(base, int(balance.get("baseCoin", 0)))
+            base_available = self.from_fixed_point(base, int(balance.get("baseCoin_available", 0)))
+            base_locked = self.from_fixed_point(base, int(balance.get("baseCoin_locked", 0)))
+            quote_wallet = self.from_fixed_point(base, int(balance.get("priceCoin", 0)))
+            quote_available = self.from_fixed_point(base, int(balance.get("priceCoin_available", 0)))
+            quote_locked = self.from_fixed_point(base, int(balance.get("priceCoin_locked", 0)))
+
+            self._account_available_balances[base] = base_available + base_wallet
+            self._account_balances[base] = base_available + base_wallet + base_locked
+            self._account_available_balances[quote] = quote_available + quote_wallet
+            self._account_balances[quote] = quote_available + quote_wallet + quote_locked
+            remote_asset_names.add(base)
+            remote_asset_names.add(quote)
 
         asset_names_to_remove = local_asset_names.difference(remote_asset_names)
         for asset_name in asset_names_to_remove:
             del self._account_available_balances[asset_name]
             del self._account_balances[asset_name]
 
-    def _initialize_trading_pair_symbols_from_exchange_info(self, exchange_info: Dict[str, Any]):
+    def _initialize_trading_pair_symbols_from_exchange_info(self, exchange_info: List[Dict[str, Any]]):
         mapping = bidict()
-        for symbol_data in filter(ultrade_utils.is_exchange_information_valid, exchange_info["symbols"]):
-            mapping[symbol_data["symbol"]] = combine_to_hb_trading_pair(base=symbol_data["baseAsset"],
-                                                                        quote=symbol_data["quoteAsset"])
+        self._conversion_rules.clear()
+        for symbol_data in filter(ultrade_utils.is_exchange_information_valid, exchange_info):
+
+            # initialize conversion rules here.
+            base = symbol_data["base_currency"].upper()
+            quote = symbol_data["price_currency"].upper()
+            self._conversion_rules[base] = int(symbol_data["base_decimal"])
+            self._conversion_rules[quote] = int(symbol_data["price_decimal"])
+
+            mapping[symbol_data["pair_key"]] = combine_to_hb_trading_pair(base=base,
+                                                                        quote=quote)
         self._set_trading_pair_symbol_map(mapping)
 
+    async def _initialize_trading_pair_symbol_map(self):
+        await self._intialize_conversion_rules()
+        try:
+            exchange_info = await self._get_ultrade_trading_pairs()
+            self._initialize_trading_pair_symbols_from_exchange_info(exchange_info=exchange_info)
+        except Exception:
+            self.logger().exception("There was an error requesting exchange info.")
+
     async def _get_last_traded_price(self, trading_pair: str) -> float:
-        params = {
-            "symbol": await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-        }
+        symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
+        price_asset = trading_pair.split("-")[1]
 
-        resp_json = await self._api_request(
-            method=RESTMethod.GET,
-            path_url=CONSTANTS.TICKER_PRICE_CHANGE_PATH_URL,
-            params=params
-        )
+        resp_json = await self._ultrade_api.get_price(symbol)
+        last_price = int(resp_json["last"]) if resp_json["last"] else 0
+        last_price = self.from_fixed_point(price_asset, last_price)
 
-        return float(resp_json["lastPrice"])
+        return float(last_price)
+
+    async def _get_ultrade_trading_pairs(self):
+        response = await self._ultrade_api.get_pair_list()
+
+        return response
+
+    def from_fixed_point(self, asset: str, value: int) -> Decimal:
+        asset: str = asset.upper()
+        value = Decimal(str(value)) / Decimal(str(self._conversion_rules[asset]))
+
+        return value
+
+    def to_fixed_point(self, asset: str, value: Decimal) -> int:
+        asset: str = asset.upper()
+        value = int(Decimal(str(value)) * Decimal(str(self._conversion_rules[asset])))
+
+        return value
