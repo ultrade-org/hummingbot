@@ -20,7 +20,22 @@ partner_app_id = "92138200"
 pair = "ALGO-USDC"
 
 
+async def ws_client(client, options):
+    async def ws_loop(client, options):
+        print(client.websocket_url)
+        async with websockets.connect("wss://testnet-ws.ultradedev.net/wss") as ws:
+            await ws.send(ujson.dumps(options))
+            while True:
+                print("++++++++++++ WS START ++++++++++++++")
+                print("read:", await ws.recv())
+                print("+++++++++++++ WS END +++++++++++++++")
 
+    try:
+        await ws_loop(client, options)
+    except websockets.exceptions.ConnectionClosed as ex:
+        print("connection closed", ex)
+    except KeyboardInterrupt:
+        pass
 
 
 async def main():
@@ -38,15 +53,13 @@ async def main():
 
     client = UltradeClient(credentials, options)
 
-    print(json.dumps(client._get_balance_and_state(), indent=4))
-
-    try:
-        result = await client.get_wallet_transactions("algo_usdc")
-        print(json.dumps(result, indent=4))
-    except asyncio.CancelledError:
-        raise
-    except asyncio.TimeoutError:
-        print('timeout!')
+    # try:
+    #     result = await client.get_wallet_transactions("algo_usdc")
+    #     print(json.dumps(result, indent=4))
+    # except asyncio.CancelledError:
+    #     raise
+    # except asyncio.TimeoutError:
+    #     print('timeout!')
 
     try:
         result = await client.get_balances("algo_usdc")
@@ -57,15 +70,7 @@ async def main():
         print('timeout!')
 
     try:
-        result = await ultrade_api.get_pair_list(partner_app_id)
-        print(json.dumps(result, indent=4))
-    except asyncio.CancelledError:
-        raise
-    except asyncio.TimeoutError:
-        print('timeout!')
-
-    try:
-        result = await ultrade_api.get_exchange_info("algo_usdc")
+        result = await ultrade_api.get_pair_list()
         print(json.dumps(result, indent=4))
     except asyncio.CancelledError:
         raise
@@ -75,6 +80,7 @@ async def main():
     try:
         result = await ultrade_api.get_price("algo_usdc")
         print(json.dumps(result, indent=4))
+        print(result['bid'])
     except asyncio.CancelledError:
         raise
     except asyncio.TimeoutError:
@@ -87,6 +93,44 @@ async def main():
         raise
     except asyncio.TimeoutError:
         print('timeout!')
+
+    def ws_callback(event, *args):
+        print("++++++++++++ WS MESSAGE ++++++++++++++")
+        print(event)
+        print(json.dumps(*args, indent=4))
+        print("++++++++++++ WS MESSAGE ++++++++++++++")
+
+    from ultrade import socket_options as OPTIONS
+    depth_params = {
+        'symbol': "algo_usdc",
+        'streams': [OPTIONS.DEPTH],
+    }
+    order_params = {
+        'symbol': "algo_usdc",
+        'streams': [OPTIONS.ORDERS],
+    }
+    trades_params = {
+        'symbol': "algo_usdc",
+        'streams': [OPTIONS.TRADES],
+    }
+    order_book_params = {
+        'symbol': "algo_usdc",
+        'streams': [OPTIONS.ORDER_BOOK],
+    }
+    # await ws_client(client, options)
+    await client.subscribe(depth_params, ws_callback)
+    await client.subscribe(order_params, ws_callback)
+    await client.subscribe(trades_params, ws_callback)
+    await client.subscribe(order_book_params, ws_callback)
+
+
+    # try:
+    #     result = await ultrade_api.get_depth("algo_usdc")
+    #     print(json.dumps(result, indent=4))
+    # except asyncio.CancelledError:
+    #     raise
+    # except asyncio.TimeoutError:
+    #     print('timeout!')
 
     # try:
     #     balances = await client._get_encoded_balance(address, partner_app_id)

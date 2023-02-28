@@ -53,8 +53,9 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
 
         data = await self._connector._ultrade_api.get_depth(symbol)  # default maximum depth of 100 levels
+        order_book = self._to_hb_order_book(data)
 
-        return data
+        return order_book
 
     async def _subscribe_channels_ultrade(self):
         """
@@ -62,13 +63,13 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         :param ws: the websocket assistant used to connect to the exchange
         """
         try:
-            for trading_pair in self._trading_pairs:
-                symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-                params = {
-                    'symbol': symbol,
-                    'streams': [SOCKET_OPTIONS.DEPTH, SOCKET_OPTIONS.TRADES],
-                }
-                await self._connector._ultrade_client.subscribe(params, self._process_websocket_messages_ultrade)
+            trading_pair = self._trading_pairs[0]
+            symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
+            params = {
+                'symbol': symbol,
+                'streams': [SOCKET_OPTIONS.DEPTH],
+            }
+            await self._connector._ultrade_client.subscribe(params, self._process_websocket_messages_ultrade)
 
             self.logger().info("Subscribed to public order book and trade channels...")
         except asyncio.CancelledError:
@@ -80,23 +81,12 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             )
             raise
 
-    def _process_websocket_messages_ultrade(self, event: str, *args):
-        # async for ws_response in websocket_assistant.iter_messages():
-        #     data: Dict[str, Any] = ws_response.data
-        #     if data is not None:  # data will be None when the websocket is disconnected
-        #         channel: str = self._channel_originating_message(event_message=data)
-        #         valid_channels = self._get_messages_queue_keys()
-        #         if channel in valid_channels:
-        #             self._message_queue[channel].put_nowait(data)
-        #         else:
-        #             await self._process_message_for_unknown_channel(
-        #                 event_message=data, websocket_assistant=websocket_assistant
-        #             )
-        
+    def _process_websocket_messages_ultrade(self, event: str, *data):
         if event == 'depth':
-            self._message_queue[event].put_nowait(*args)
+            order_book = self._to_hb_order_book(data)
+            self._message_queue[event].put_nowait(order_book)
 
-     async def listen_for_subscriptions(self):
+    async def listen_for_subscriptions(self):
         """
         Connects to the trade events and order diffs websocket endpoints and listens to the messages sent by the
         exchange. Each message is stored in its own queue.
@@ -115,7 +105,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 )
                 await self._sleep(1.0)
             finally:
-                await self._on_order_stream_interruption(websocket_assistant=ws)
+                pass
 
     async def _order_book_snapshot(self, trading_pair: str) -> OrderBookMessage:
         snapshot: Dict[str, Any] = await self._request_order_book_snapshot(trading_pair)
@@ -128,26 +118,24 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         return snapshot_msg
 
     async def _parse_trade_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
-        if "result" not in raw_message:
-            trading_pair = await self._connector.trading_pair_associated_to_exchange_symbol(symbol=raw_message["s"])
-            trade_message = UltradeOrderBook.trade_message_from_exchange(
-                raw_message, {"trading_pair": trading_pair})
-            message_queue.put_nowait(trade_message)
+        pass
 
     async def _parse_order_book_diff_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
-        if "result" not in raw_message:
-            trading_pair = await self._connector.trading_pair_associated_to_exchange_symbol(symbol=raw_message["s"])
-            order_book_message: OrderBookMessage = UltradeOrderBook.diff_message_from_exchange(
-                raw_message, time.time(), {"trading_pair": trading_pair})
-            message_queue.put_nowait(order_book_message)
+        pass
 
     def _channel_originating_message(self, event_message: Dict[str, Any]) -> str:
-        channel = ""
-        if "result" not in event_message:
-            event_type = event_message.get("e")
-            channel = (self._diff_messages_queue_key if event_type == CONSTANTS.DIFF_EVENT_TYPE
-                       else self._trade_messages_queue_key)
-        return channel
-
-    async def _on_order_stream_interruption_ultrade(self):
         pass
+
+    def _to_hb_order_book(self, order_book: Dict(str, Any)) -> Dict[str, Any]:
+        trading_pair = self._trading_pairs[0]
+        base, quote = list(map(lambda x: x, trading_pair.split('-')))
+        
+        order_book["bids"] = [[self._connector.from_fixed_point(quote, bid[0]), self._connector.from_fixed_point(base, bid[1])] for bid in order_book['buy']]
+        order_book["asks"] = [[self._connector.from_fixed_point(quote, ask[0]), self._connector.from_fixed_point(base, ask[1])] for ask in order_book['sell']]
+
+        del order_book['buy']
+        del order_book['sell']
+
+        order_book['trading_pair'] = trading_pair
+
+        return order_book

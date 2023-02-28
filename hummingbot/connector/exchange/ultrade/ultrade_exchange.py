@@ -1,6 +1,7 @@
 from algosdk.v2client import algod
 import asyncio
 from decimal import Decimal
+import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from bidict import bidict
@@ -67,7 +68,7 @@ class UltradeExchange(ExchangePyBase):
             "websocket_url": f"wss://{self._domain}-ws.ultradedev.net/socket.io"
         }
 
-        credentials = {"mnemonic": mnemonic}
+        credentials = {"mnemonic": ultrade_mnemonic}
 
         self._ultrade_client = UltradeClient(credentials, options)
         self._ultrade_api = ultrade_api
@@ -77,18 +78,18 @@ class UltradeExchange(ExchangePyBase):
         super().__init__(client_config_map)
 
     @staticmethod
-    def ultrade_order_type(order_type: OrderType) -> str:
-        return order_type.name.upper()
+    def ultrade_order_type(order_type: OrderType) -> int:
+        return CONSTANTS.ORDER_TYPE[order_type]
 
     @staticmethod
-    def to_hb_order_type(ultrade_type: str) -> OrderType:
+    def to_hb_order_type(ultrade_type: int) -> OrderType:
         return OrderType[ultrade_type]
 
     @property
     def authenticator(self):
         return UltradeAuth(
-            api_key=self.api_key,
-            secret_key=self.secret_key,
+            mnemonic=self.mnemonic,
+            wallet_address=self.wallet_address,
             time_provider=self._time_synchronizer)
 
     @property
@@ -116,15 +117,15 @@ class UltradeExchange(ExchangePyBase):
 
     @property
     def trading_rules_request_path(self):
-        return CONSTANTS.EXCHANGE_INFO_PATH_URL
+        return
 
     @property
     def trading_pairs_request_path(self):
-        return CONSTANTS.EXCHANGE_INFO_PATH_URL
+        return
 
     @property
     def check_network_request_path(self):
-        return CONSTANTS.PING_PATH_URL
+        return
 
     @property
     def trading_pairs(self):
@@ -139,17 +140,14 @@ class UltradeExchange(ExchangePyBase):
         return self._trading_required
 
     def supported_order_types(self):
-        return [OrderType.LIMIT, OrderType.LIMIT_MAKER]
+        return [OrderType.LIMIT, OrderType.MARKET]
 
-    async def get_all_pairs_prices(self) -> List[Dict[str, str]]:
-        pairs_prices = await self._api_get(path_url=CONSTANTS.TICKER_BOOK_PATH_URL)
-        return pairs_prices
+    # async def get_all_pairs_prices(self) -> List[Dict[str, str]]:
+    #     pairs_prices = await self._api_get(path_url=CONSTANTS.TICKER_BOOK_PATH_URL)
+    #     return pairs_prices
 
     def _is_request_exception_related_to_time_synchronizer(self, request_exception: Exception):
-        error_description = str(request_exception)
-        is_time_synchronizer_related = ("-1021" in error_description
-                                        and "Timestamp for this request" in error_description)
-        return is_time_synchronizer_related
+        return False
 
     def _create_web_assistants_factory(self) -> WebAssistantsFactory:
         return web_utils.build_api_factory(
@@ -201,39 +199,22 @@ class UltradeExchange(ExchangePyBase):
                            order_type: OrderType,
                            price: Decimal,
                            **kwargs) -> Tuple[str, float]:
-        order_result = None
-        amount_str = f"{amount:f}"
-        price_str = f"{price:f}"
-        type_str = UltradeExchange.ultrade_order_type(order_type)
-        side_str = CONSTANTS.SIDE_BUY if trade_type is TradeType.BUY else CONSTANTS.SIDE_SELL
+        # order_result = None
+        base, quote = list(map(lambda x: x, trading_pair.split("-")))
+        quantity_int = self.to_fixed_point(base, amount)
+        price_int = self.to_fixed_point(quote, price)
+        type_str = '0' if order_type is OrderType.LIMIT else 'M'
+        side_str = 'B' if trade_type is TradeType.BUY else 'S'
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-        api_params = {"symbol": symbol,
-                      "side": side_str,
-                      "quantity": amount_str,
-                      "type": type_str,
-                      "newClientOrderId": order_id,
-                      "price": price_str}
-        if order_type == OrderType.LIMIT:
-            api_params["timeInForce"] = CONSTANTS.TIME_IN_FORCE_GTC
 
-        order_result = await self._api_post(
-            path_url=CONSTANTS.ORDER_PATH_URL,
-            data=api_params,
-            is_auth_required=True)
-        o_id = str(order_result["orderId"])
-        transact_time = order_result["transactTime"] * 1e-3
+        o_id = await self._ultrade_client.new_order(symbol, side_str, type_str, quantity_int, price_int)
+        transact_time = int(time.time())
         return (o_id, transact_time)
 
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder):
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
-        api_params = {
-            "symbol": symbol,
-            "origClientOrderId": order_id,
-        }
-        cancel_result = await self._api_delete(
-            path_url=CONSTANTS.ORDER_PATH_URL,
-            params=api_params,
-            is_auth_required=True)
+
+        cancel_result = await self._ultrade_client.cancel_order(symbol, order_id)
         if cancel_result.get("status") == "CANCELED":
             return True
         return False
@@ -274,7 +255,7 @@ class UltradeExchange(ExchangePyBase):
         for rule in filter(ultrade_utils.is_exchange_information_valid, exchange_info_list):
             try:
                 trading_pair = await self.trading_pair_associated_to_exchange_symbol(symbol=rule.get("pair_key"))
-                base, quote = list(map(lambda x: x, pair.split("-")))
+                base, quote = list(map(lambda x: x, trading_pair.split("-")))
                 
                 min_order_size = self.from_fixed_point(base, int(rule['min_order_size']))
                 min_price_increment = self.from_fixed_point(quote, int(rule['min_price_increment']))
@@ -568,15 +549,14 @@ class UltradeExchange(ExchangePyBase):
             # initialize conversion rules here.
             base = symbol_data["base_currency"].upper()
             quote = symbol_data["price_currency"].upper()
-            self._conversion_rules[base] = int(symbol_data["base_decimal"])
-            self._conversion_rules[quote] = int(symbol_data["price_decimal"])
+            self._conversion_rules[base] = 10 ** int(symbol_data["base_decimal"])
+            self._conversion_rules[quote] = 10 ** int(symbol_data["price_decimal"])
 
             mapping[symbol_data["pair_key"]] = combine_to_hb_trading_pair(base=base,
                                                                         quote=quote)
         self._set_trading_pair_symbol_map(mapping)
 
     async def _initialize_trading_pair_symbol_map(self):
-        await self._intialize_conversion_rules()
         try:
             exchange_info = await self._get_ultrade_trading_pairs()
             self._initialize_trading_pair_symbols_from_exchange_info(exchange_info=exchange_info)

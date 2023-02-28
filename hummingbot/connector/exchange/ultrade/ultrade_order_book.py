@@ -27,8 +27,8 @@ class UltradeOrderBook(OrderBook):
         return OrderBookMessage(OrderBookMessageType.SNAPSHOT, {
             "trading_pair": msg["trading_pair"],
             "update_id": msg["u"],
-            "bids": msg["buy"],
-            "asks": msg["sell"]
+            "bids": msg["bids"],
+            "asks": msg["asks"]
         }, timestamp=timestamp)
 
     @classmethod
@@ -45,30 +45,10 @@ class UltradeOrderBook(OrderBook):
         """
         if metadata:
             msg.update(metadata)
-        return OrderBookMessage(OrderBookMessageType.DIFF, {
+        return OrderBookMessage(OrderBookMessageType.SNAPSHOT, {
             "trading_pair": msg["trading_pair"],
             "first_update_id": msg["U"],
             "update_id": msg["u"],
-            "bids": msg["b"],
-            "asks": msg["a"]
+            "bids": msg["bids"],
+            "asks": msg["asks"]
         }, timestamp=timestamp)
-
-    @classmethod
-    def trade_message_from_exchange(cls, msg: Dict[str, any], metadata: Optional[Dict] = None):
-        """
-        Creates a trade message with the information from the trade event sent by the exchange
-        :param msg: the trade event details sent by the exchange
-        :param metadata: a dictionary with extra information to add to trade message
-        :return: a trade message with the details of the trade as provided by the exchange
-        """
-        if metadata:
-            msg.update(metadata)
-        ts = msg["E"]
-        return OrderBookMessage(OrderBookMessageType.TRADE, {
-            "trading_pair": msg["trading_pair"],
-            "trade_type": float(TradeType.SELL.value) if msg["m"] else float(TradeType.BUY.value),
-            "trade_id": msg["t"],
-            "update_id": ts,
-            "price": msg["p"],
-            "amount": msg["q"]
-        }, timestamp=ts * 1e-3)
