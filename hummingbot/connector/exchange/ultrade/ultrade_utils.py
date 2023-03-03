@@ -54,7 +54,7 @@ KEYS = UltradeConfigMap.construct()
 
 OTHER_DOMAINS = ["ultrade_testnet"]
 OTHER_DOMAINS_PARAMETER = {"ultrade_testnet": "testnet"}
-OTHER_DOMAINS_EXAMPLE_PAIR = {"ultrade_testnet": "ALGO-USDC"}
+OTHER_DOMAINS_EXAMPLE_PAIR = {"ultrade_testnet": EXAMPLE_PAIR}
 OTHER_DOMAINS_DEFAULT_FEES = {"ultrade_testnet": DEFAULT_FEES}
 
 

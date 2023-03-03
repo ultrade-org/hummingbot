@@ -1,4 +1,3 @@
-from hummingbot.core.api_throttler.data_types import LinkedLimitWeightPair, RateLimit
 from hummingbot.core.data_type.in_flight_order import OrderState
 from hummingbot.core.data_type.common import OrderType, TradeType
 
@@ -33,27 +32,25 @@ WS_HEARTBEAT_TIME_INTERVAL = 30
 
 # Order States
 ORDER_STATE = {
-    # "PENDING": OrderState.PENDING_CREATE,
-    # "NEW": OrderState.OPEN,
-    # "FILLED": OrderState.FILLED,
-    # "PARTIALLY_FILLED": OrderState.PARTIALLY_FILLED,
-    # "PENDING_CANCEL": OrderState.OPEN,
-    # "CANCELED": OrderState.CANCELED,
-    # "REJECTED": OrderState.FAILED,
-    # "EXPIRED": OrderState.FAILED,
     1: OrderState.OPEN,
     2: OrderState.CANCELED,
-    3: OrderState.FILLED
+    3: OrderState.FILLED,
+    4: OrderState.FILLED
 }
 
-ORDER_TYPE = {
-    OrderType.LIMIT: 0,  # LIMIT
-    OrderType.MARKET: 3   # MARKET
+TO_HB_ORDER_TYPE = {
+    0: OrderType.LIMIT, # LIMIT
+    3: OrderType.MARKET # MARKET
+}
+
+FROM_HB_ORDER_TYPE = {
+    OrderType.LIMIT: 0, # LIMIT
+    OrderType.MARKET: 3 # MARKET
 }
 
 ORDER_SIDE = {
-    TradeType.BUY: 0,  # BUY
-    TradeType.SELL: 1  # SELL
+    0: TradeType.BUY,  # BUY
+    1: TradeType.SELL  # SELL
 }
 
 # Websocket event types

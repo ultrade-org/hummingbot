@@ -3,10 +3,9 @@ import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from hummingbot.connector.exchange.ultrade import ultrade_constants as CONSTANTS, ultrade_web_utils as web_utils
-from hummingbot.connector.exchange.ultrade.ultrade_order_book import UltradeOrderBook
-from hummingbot.core.data_type.order_book_message import OrderBookMessage
+# from hummingbot.connector.exchange.ultrade.ultrade_order_book import UltradeOrderBook
+from hummingbot.core.data_type.order_book_message import OrderBookMessage, OrderBookMessageType
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
-from hummingbot.core.web_assistant.connections.data_types import RESTMethod, WSJSONRequest
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 from hummingbot.core.web_assistant.ws_assistant import WSAssistant
 from hummingbot.logger import HummingbotLogger
@@ -65,11 +64,18 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         try:
             trading_pair = self._trading_pairs[0]
             symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-            params = {
+            depth_params = {
                 'symbol': symbol,
                 'streams': [SOCKET_OPTIONS.DEPTH],
             }
-            await self._connector._ultrade_client.subscribe(params, self._process_websocket_messages_ultrade)
+            def process_websocket_messages_ultrade(event: str, *message):
+                message = {}
+                if event == self._snapshot_messages_queue_key and message is not None:
+                    message['type'] = event
+                    order_book = self._to_hb_order_book(message)
+                    message['message'] = order_book
+                    self._message_queue[event].put_nowait(message)
+            await self._connector._ultrade_client.subscribe(depth_params, process_websocket_messages_ultrade)
 
             self.logger().info("Subscribed to public order book and trade channels...")
         except asyncio.CancelledError:
@@ -80,11 +86,6 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 exc_info=True
             )
             raise
-
-    def _process_websocket_messages_ultrade(self, event: str, *data):
-        if event == 'depth':
-            order_book = self._to_hb_order_book(data)
-            self._message_queue[event].put_nowait(order_book)
 
     async def listen_for_subscriptions(self):
         """
@@ -109,22 +110,37 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     async def _order_book_snapshot(self, trading_pair: str) -> OrderBookMessage:
         snapshot: Dict[str, Any] = await self._request_order_book_snapshot(trading_pair)
-        snapshot_timestamp: float = time.time()
-        snapshot_msg: OrderBookMessage = UltradeOrderBook.snapshot_message_from_exchange(
-            snapshot,
-            snapshot_timestamp,
-            metadata={"trading_pair": trading_pair}
-        )
-        return snapshot_msg
 
-    async def _parse_trade_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
-        pass
+        timestamp: float = int(snapshot["ts"]) * 1e-3
+        order_book_message_content = {
+            "trading_pair": snapshot['trading_pair'],
+            "update_id": snapshot['u'],
+            "bids": snapshot['bids'],
+            "asks": snapshot['asks'],
+        }
+        snapshot_message: OrderBookMessage = OrderBookMessage(
+                OrderBookMessageType.SNAPSHOT,
+                order_book_message_content,
+                timestamp)
+        return snapshot_message
 
-    async def _parse_order_book_diff_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
-        pass
+    async def _parse_order_book_snapshot_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
+        message = raw_message['message']
 
-    def _channel_originating_message(self, event_message: Dict[str, Any]) -> str:
-        pass
+        timestamp: float = int(message["ts"]) * 1e-3
+        order_book_message_content = {
+            "trading_pair": message['trading_pair'],
+            "update_id": message['u'],
+            "bids": message['bids'],
+            "asks": message['asks'],
+        }
+        
+        snapshot_message: OrderBookMessage = OrderBookMessage(
+                OrderBookMessageType.SNAPSHOT,
+                order_book_message_content,
+                timestamp)
+
+        message_queue.put_nowait(snapshot_message)
 
     def _to_hb_order_book(self, order_book: Dict(str, Any)) -> Dict[str, Any]:
         trading_pair = self._trading_pairs[0]

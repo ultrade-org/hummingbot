@@ -94,14 +94,12 @@ async def main():
     #         'quantity': 1000000,
     #         'price': 11000000
     #     }
-    #     order_id = await client.new_order('algo_usdc', 'B', '0', 1000000, 11000000)
-    #     print(order_id)
+    #     order_info = await client.new_order('algo_usdc', 'S', '0', 1000000, 11000000)
+    #     print(order_info)
     # except asyncio.CancelledError:
     #     raise
     # except asyncio.TimeoutError:
     #     print('timeout!')
-
-    order_id = '7MGOCWOAGLUX2HX7WFBKPLZ2UXW2QI4X3ACABYB4ESYDFWWICITA'
 
     # await asyncio.sleep(5.0)
 
@@ -113,31 +111,13 @@ async def main():
     # except asyncio.TimeoutError:
     #     print('timeout!')
 
-    try:
-        result = await client.get_orders("algo_usdc", 0)
-        print(json.dumps(result, indent=4))
-    except asyncio.CancelledError:
-        raise
-    except asyncio.TimeoutError:
-        print('timeout!')
-
-    try:
-        result = await client.get_order_by_id("algo_usdc", order_id)
-        print(json.dumps(result, indent=4))
-    except asyncio.CancelledError:
-        raise
-    except asyncio.TimeoutError:
-        print('timeout!')
-
     # try:
-    #     result = await client.cancel_order("algo_usdc", order_id)
+    #     result = await client.get_orders("algo_usdc", 0)
     #     print(json.dumps(result, indent=4))
     # except asyncio.CancelledError:
     #     raise
     # except asyncio.TimeoutError:
     #     print('timeout!')
-
-    # await asyncio.sleep(5.0)
 
     # try:
     #     result = await client.get_order_by_id("algo_usdc", order_id)
@@ -148,6 +128,24 @@ async def main():
     #     print('timeout!')
 
     # try:
+    #     result = await client.cancel_order("algo_usdc", 12064, 60)
+    #     print(result)
+    # except asyncio.CancelledError:
+    #     raise
+    # except asyncio.TimeoutError:
+    #     print('timeout!')
+
+    # await asyncio.sleep(5.0)
+
+    # try:
+    #     result = await client.get_orders("algo_usdc", 0)
+    #     print(json.dumps(result, indent=4))
+    # except asyncio.CancelledError:
+    #     raise
+    # except asyncio.TimeoutError:
+    #     print('timeout!')
+
+    # try:
     #     result = await client.get_balances("algo_usdc")
     #     print(json.dumps(result, indent=4))
     # except asyncio.CancelledError:
@@ -155,18 +153,19 @@ async def main():
     # except asyncio.TimeoutError:
     #     print('timeout!')
 
-    # def ws_callback(event, *args):
-    #     print("++++++++++++ WS MESSAGE ++++++++++++++")
-    #     print(event)
-    #     print(*args)
-    #     print("++++++++++++ WS MESSAGE ++++++++++++++")
+    def ws_callback(event, *args):
+        print("++++++++++++ WS MESSAGE ++++++++++++++")
+        print(event)
+        print(*args)
+        print("++++++++++++ WS MESSAGE ++++++++++++++")
 
-    # from ultrade import socket_options as OPTIONS
-    # params = {
-    #     'symbol': "algo_usdc",
-    #     'streams': [OPTIONS.DEPTH],
-    #     # 'address': client.client.get_account_address()
-    # }
+    from ultrade import socket_options as OPTIONS
+    depth_params = {
+        'symbol': "algo_usdc",
+        'streams': [OPTIONS.DEPTH],
+        # 'address': client.client.get_account_address()
+    }
+    await client.subscribe(depth_params, ws_callback)
     # await ws_client(client, options)
 
 

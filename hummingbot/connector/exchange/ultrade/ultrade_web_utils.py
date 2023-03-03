@@ -1,3 +1,4 @@
+import time
 from typing import Callable, Optional
 
 import hummingbot.connector.exchange.ultrade.ultrade_constants as CONSTANTS
@@ -7,6 +8,8 @@ from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
 from hummingbot.core.web_assistant.auth import AuthBase
 from hummingbot.core.web_assistant.connections.data_types import RESTMethod
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
+
+from ultrade import api as ultrade_api
 
 
 def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> str:
@@ -63,13 +66,5 @@ async def get_current_server_time(
         throttler: Optional[AsyncThrottler] = None,
         domain: str = CONSTANTS.DEFAULT_DOMAIN,
 ) -> float:
-    throttler = throttler or create_throttler()
-    api_factory = build_api_factory_without_time_synchronizer_pre_processor(throttler=throttler)
-    rest_assistant = await api_factory.get_rest_assistant()
-    response = await rest_assistant.execute_request(
-        url=public_rest_url(path_url=CONSTANTS.SERVER_TIME_PATH_URL, domain=domain),
-        method=RESTMethod.GET,
-        throttler_limit_id=CONSTANTS.SERVER_TIME_PATH_URL,
-    )
-    server_time = response["serverTime"]
-    return server_time
+    response = float(int(time.time() * 1e3))
+    return response

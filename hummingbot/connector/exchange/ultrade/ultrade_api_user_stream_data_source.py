@@ -1,14 +1,10 @@
 import asyncio
-import time
 from typing import TYPE_CHECKING, List, Optional
 
-from hummingbot.connector.exchange.ultrade import ultrade_constants as CONSTANTS, ultrade_web_utils as web_utils
+from hummingbot.connector.exchange.ultrade import ultrade_constants as CONSTANTS
 from hummingbot.connector.exchange.ultrade.ultrade_auth import UltradeAuth
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
-from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.core.web_assistant.connections.data_types import RESTMethod
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
-from hummingbot.core.web_assistant.ws_assistant import WSAssistant
 from hummingbot.logger import HummingbotLogger
 from ultrade import socket_options as SOCKET_OPTIONS
 
@@ -79,24 +75,30 @@ class UltradeAPIUserStreamDataSource(UserStreamTrackerDataSource):
             trading_pair = self._trading_pairs[0]
             symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
 
-            def _process_websocket_messages_ultrade(event, *data):
+            def process_websocket_messages_ultrade(event, *message):
                 message = {}
-                message['data'] = data
-                if event in ['orders', 'trades']:
-                    message['event'] = event
+                if event in ['order', 'trades'] and message is not None:
+                    message['message'] = message
+                    message['type'] = event
                     output.put_nowait(message)
                     self._last_recv_time = self._time()
 
             order_params = {
                 'symbol': symbol,
                 'streams': [SOCKET_OPTIONS.ORDER],
+                'options': {
+                    'address': self._connector.wallet_address
+                }
             }
             trade_params = {
                 'symbol': symbol,
                 'streams': [SOCKET_OPTIONS.TRADE],
+                'options': {
+                    'address': self._connector.wallet_address
+                }
             }
-            await self._connector._ultrade_client.subscribe(order_params, _process_websocket_messages_ultrade)
-            await self._connector._ultrade_client.subscribe(trade_params, _process_websocket_messages_ultrade)
+            await self._connector._ultrade_client.subscribe(order_params, process_websocket_messages_ultrade)
+            await self._connector._ultrade_client.subscribe(trade_params, process_websocket_messages_ultrade)
 
             self.logger().info("Subscribed to public order book and trade channels...")
         except asyncio.CancelledError:

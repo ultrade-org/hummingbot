@@ -105,28 +105,28 @@ async def main():
     #     'symbol': "algo_usdc",
     #     'streams': [OPTIONS.DEPTH],
     # }
-    order_params = {
-        'symbol': "algo_usdc",
-        'streams': [OPTIONS.ORDERS],
-        'options': {
-            'address': address,
-        }
-    }
-    # trades_params = {
+    # order_params = {
     #     'symbol': "algo_usdc",
-    #     'streams': [OPTIONS.TRADES],
+    #     'streams': [OPTIONS.ORDERS],
     #     'options': {
     #         'address': address,
     #     }
     # }
+    trades_params = {
+        'symbol': "algo_usdc",
+        'streams': [OPTIONS.TRADES],
+        'options': {
+            'address': address,
+        }
+    }
     order_book_params = {
         'symbol': "algo_usdc",
         'streams': [OPTIONS.ORDER_BOOK],
     }
     # await ws_client(client, options)
     # await client.subscribe(depth_params, ws_callback)
-    await client.subscribe(order_params, ws_callback)
-    # await client.subscribe(trades_params, ws_callback)
+    # await client.subscribe(order_params, ws_callback)
+    await client.subscribe(trades_params, ws_callback)
     await client.subscribe(order_book_params, ws_callback)
 
 
