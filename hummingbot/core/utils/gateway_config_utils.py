@@ -11,7 +11,8 @@ native_tokens = {
     "harmony": "ONE",
     "binance-smart-chain": "BNB",
     "cronos": "CRO",
-    "near": "NEAR"
+    "near": "NEAR",
+    "injective": "INJ",
 }
 
 SUPPORTED_CHAINS = set(native_tokens.keys())
@@ -59,6 +60,24 @@ def build_connector_display(connectors: List[Dict[str, Any]]) -> pd.DataFrame:
                 connector_spec["connector"],
                 f"{connector_spec['chain']} - {connector_spec['network']}",
                 connector_spec["wallet_address"],
+            ]
+        ])
+
+    return pd.DataFrame(data=data, columns=columns)
+
+
+def build_list_display(connectors: List[Dict[str, Any]]) -> pd.DataFrame:
+    """
+    Display connector information as a table
+    """
+    columns = ["Exchange", "Chains", "Tier"]
+    data = []
+    for connector_spec in connectors:
+        data.extend([
+            [
+                connector_spec["name"],
+                ', '.join(connector_spec['chains']),
+                connector_spec["tier"],
             ]
         ])
 
