@@ -55,6 +55,8 @@ connector_status = {
     'mad_meerkat': 'bronze',
     'vvs': 'bronze',
     'ref': 'bronze',
+    'ultrade': 'bronze',
+    'ultrade_testnet': 'bronze',
 }
 
 warning_messages = {
