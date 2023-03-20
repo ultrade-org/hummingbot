@@ -2,13 +2,10 @@ import asyncio
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from hummingbot.connector.exchange.ultrade import ultrade_constants as CONSTANTS
-
-# from hummingbot.connector.exchange.ultrade.ultrade_order_book import UltradeOrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage, OrderBookMessageType
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 from hummingbot.logger import HummingbotLogger
-from ultrade import socket_options as SOCKET_OPTIONS
 from ultrade.sdk_client import Client as UltradeClient
 
 if TYPE_CHECKING:
@@ -52,53 +49,9 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
 
         data = await self._connector._ultrade_api.get_depth(symbol)  # default maximum depth of 100 levels
-        order_book = self._to_hb_order_book(data)
+        order_book = self._connector.to_hb_order_book(data)
 
         return order_book
-
-    async def _subscribe_channels_ultrade(self):
-        """
-        Subscribes to the trade events and diff orders events through the provided websocket connection.
-        :param ws: the websocket assistant used to connect to the exchange
-        """
-        try:
-            trading_pair = self._trading_pairs[0]
-            symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-            depth_params = {
-                'symbol': symbol,
-                'streams': [SOCKET_OPTIONS.DEPTH],
-            }
-
-            def process_websocket_messages_ultrade(event, message):
-                event_message = {}
-                if event == self._snapshot_messages_queue_key and message is not None:
-                    event_message['type'] = event
-                    order_book = self._to_hb_order_book(message)
-                    event_message['message'] = order_book
-                    self._message_queue[event].put_nowait(event_message)
-
-            connection_id = await self._ultrade_client.subscribe(depth_params, process_websocket_messages_ultrade)
-            self._connection_ids.add(connection_id)
-
-            self.logger().info("Subscribed to public order book and trade channels...")
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            self.logger().error(
-                "Unexpected error occurred while subscribing to order book trading and delta streams...",
-                exc_info=True
-            )
-            raise
-
-    async def _unsubscribe_channels_ultrade(self):
-        try:
-            for connection_id in self._connection_ids:
-                await self._ultrade_client.unsubscribe(connection_id)
-            self.logger().info("Unsubscribed to public order book and trade channels.")
-        except Exception:
-            pass
-        finally:
-            self._connection_ids.clear()
 
     async def listen_for_subscriptions(self):
         """
@@ -107,8 +60,6 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         """
         while True:
             try:
-                # await self._subscribe_channels_ultrade()
-                # await self._sleep(self.ONE_DAY)
                 await self._process_socket_messages_ultrade_depth()
             except asyncio.CancelledError:
                 raise
@@ -163,26 +114,3 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             except Exception:
                 self.logger().exception("Unexpected error when processing public order book snapshots from exchange")
                 await self._sleep(1.0)
-
-    def _to_hb_order_book(self, order_book: Dict[str, Any]) -> Dict[str, Any]:
-        try:
-            trading_pair = self._trading_pairs[0]
-            base, quote = list(map(lambda x: x, trading_pair.split('-')))
-
-            bids = [[self._connector.from_fixed_point(quote, bid[0]), self._connector.from_fixed_point(base, bid[1])] for bid in order_book['buy']]
-            asks = [[self._connector.from_fixed_point(quote, ask[0]), self._connector.from_fixed_point(base, ask[1])] for ask in order_book['sell']]
-
-            order_book['bids'] = bids
-            order_book['asks'] = asks
-
-            del order_book['buy']
-            del order_book['sell']
-
-            order_book['trading_pair'] = trading_pair
-
-            return order_book
-        except Exception:
-            self.logger().error(
-                "Unexpected error occurred transalting order book stream...",
-                exc_info=True
-            )

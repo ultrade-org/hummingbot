@@ -4,7 +4,6 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from algosdk.v2client import algod
-from async_timeout import timeout
 from bidict import bidict
 
 from hummingbot.connector.constants import s_decimal_NaN
@@ -217,7 +216,6 @@ class UltradeExchange(ExchangePyBase):
 
         self._stop_event_set.set()
         self._stop_network()
-        await asyncio.sleep(10.0)
         safe_ensure_future(self._unsubscribe_channels_ultrade())
 
     async def _update_trading_rules(self):
@@ -263,21 +261,29 @@ class UltradeExchange(ExchangePyBase):
 
         :return: a list of CancellationResult instances, one for each of the orders to be cancelled
         """
-        incomplete_orders = [o for o in self.in_flight_orders.values() if not o.is_done]
-        tasks = [self._execute_cancel(o.trading_pair, o.client_order_id) for o in incomplete_orders]
-        order_id_set = set([o.client_order_id for o in incomplete_orders])
-        failed_cancellations = []
+        if self._trading_pairs is None:
+            self.logger().error("Trading Pairs needed for fetching Open orders in Ultrade Exchange.")
+            return []
 
         try:
-            async with timeout(timeout_seconds):
-                await safe_gather(*tasks, return_exceptions=True)
+            incomplete_orders = [o for o in self.in_flight_orders.values() if not o.is_done]
+            tasks = [self._ultrade_client.cancel_all_orders(await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)) for trading_pair in self._trading_pairs]
+            order_id_set = set([o.client_order_id for o in incomplete_orders])
+            failed_cancellations = []
 
-                await asyncio.sleep(5.0)
-                open_orders = await self._get_open_orders()
+            # wait for all in-progress order creations to be complete.
+            self.logger().info("Waiting for all order creations to be complete...")
+            await asyncio.sleep(10.0)
+            await safe_gather(*tasks, return_exceptions=True)
 
-                for client_order_id in open_orders:
-                    order_id_set.remove(client_order_id)
-                    failed_cancellations.append(CancellationResult(client_order_id, False))
+            # wait for all in-progress order cancellations to be complete.
+            self.logger().info("Waiting for all order cancellations to be complete...")
+            await asyncio.sleep(10.0)
+            open_orders = await self._get_open_orders()
+
+            for client_order_id in open_orders:
+                order_id_set.remove(client_order_id)
+                failed_cancellations.append(CancellationResult(client_order_id, False))
         except Exception:
             self.logger().network(
                 "Unexpected error cancelling orders.",
@@ -581,7 +587,7 @@ class UltradeExchange(ExchangePyBase):
                 event_message = {}
                 if event == 'depth' and message is not None:
                     event_message['type'] = event
-                    order_book = self._to_hb_order_book(message)
+                    order_book = self.to_hb_order_book(message)
                     event_message['message'] = order_book
                     self.order_book_depth_queue_ultrade.put_nowait(event_message)
                 elif event == 'order' and message is not None:
@@ -651,6 +657,8 @@ class UltradeExchange(ExchangePyBase):
     async def _get_open_orders(self) -> List[str]:
         if self._trading_pairs is None:
             self.logger().error("Trading Pairs needed for fetching Open orders in Ultrade Exchange.")
+            return []
+
         incomplete_orders = [o for o in self.in_flight_orders.values() if not o.is_done]
 
         tasks = []
@@ -685,7 +693,7 @@ class UltradeExchange(ExchangePyBase):
 
         return value
 
-    def _to_hb_order_book(self, order_book: Dict[str, Any]) -> Dict[str, Any]:
+    def to_hb_order_book(self, order_book: Dict[str, Any]) -> Dict[str, Any]:
         try:
             trading_pair = self._trading_pairs[0]
             base, quote = list(map(lambda x: x, trading_pair.split('-')))
