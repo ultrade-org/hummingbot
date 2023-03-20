@@ -302,7 +302,7 @@ class UltradeExchange(ExchangePyBase):
         if exchange_order_id not in self._requested_for_cancel_ultrade:
             o_id, slot = list(map(lambda x: int(x), exchange_order_id.split(('-'))))
             cancel_result = await self._ultrade_client.cancel_order(symbol, o_id, slot)
-            if not isinstance(cancel_result, Exception):
+            if cancel_result and not isinstance(cancel_result, Exception):
                 self._requested_for_cancel_ultrade.add(exchange_order_id)
                 cancelled = True
         return cancelled
