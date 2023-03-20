@@ -499,6 +499,17 @@ class UltradeExchange(ExchangePyBase):
                         )
                         self._order_tracker.process_trade_update(trade_update)
 
+                        if status == OrderState.FILLED:
+                            # This is a filled status update for a tracked order
+                            order_update = OrderUpdate(
+                                trading_pair=tracked_order.trading_pair,
+                                update_timestamp=time.time(),
+                                new_state=OrderState.FILLED,
+                                client_order_id=tracked_order.client_order_id,
+                                exchange_order_id=tracked_order.exchange_order_id,
+                            )
+                            self._order_tracker.process_order_update(order_update)
+
     async def _update_orders_fills(self, orders: List[InFlightOrder]):
         pass
 
