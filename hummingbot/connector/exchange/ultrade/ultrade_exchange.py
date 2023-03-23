@@ -79,7 +79,6 @@ class UltradeExchange(ExchangePyBase):
         self._stop_event_set: asyncio.Event = asyncio.Event()
         self._connection_ids_ultrade = set()
         self._requested_for_cancel_ultrade = set()
-        self._partial_cancelled_orders_ultrade = set()
         self._conversion_rules_ultrade_set_event_task: asyncio.Event() = asyncio.Event()
         safe_ensure_future(self._initialize_conversion_rules_ultrade())
 
@@ -296,16 +295,7 @@ class UltradeExchange(ExchangePyBase):
 
     async def _execute_order_cancel_and_process_update(self, order: InFlightOrder) -> bool:
         cancelled = await self._place_cancel(order.client_order_id, order)
-        if cancelled:
-            order_update: OrderUpdate = OrderUpdate(
-                client_order_id=order.client_order_id,
-                trading_pair=order.trading_pair,
-                update_timestamp=self.current_timestamp,
-                new_state=(OrderState.CANCELED
-                           if order.client_order_id not in self._partial_cancelled_orders_ultrade
-                           else OrderState.PENDING_CANCEL),
-            )
-            self._order_tracker.process_order_update(order_update)
+        # cancellation will be processed in the next status polling cycle
         return cancelled
 
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder):
@@ -318,26 +308,9 @@ class UltradeExchange(ExchangePyBase):
             o_id, slot = list(map(lambda x: int(x), exchange_order_id.split(('-'))))
             try:
                 self._requested_for_cancel_ultrade.add(exchange_order_id)
-                cancel_result = await self._ultrade_client.cancel_order(symbol, o_id, slot)
-                released_amount = int(cancel_result['released_amount']) if cancel_result.get('released_amount', None) else 0
-                is_buy = tracked_order.trade_type is TradeType.BUY
-                released_amount = self.from_fixed_point(tracked_order.base_asset, released_amount) if not is_buy else self.from_fixed_point(tracked_order.quote_asset, released_amount)
-                partial_cancel = False
-                if is_buy:
-                    released_amount_quote = self.from_fixed_point(tracked_order.quote_asset, released_amount)
-                    if (tracked_order.amount * tracked_order.price) - tracked_order.executed_amount_quote > released_amount_quote:
-                        partial_cancel = True
-                else:
-                    released_amount_base = self.from_fixed_point(tracked_order.base_asset, released_amount)
-                    if tracked_order.amount - tracked_order.executed_amount_base > released_amount_base:
-                        partial_cancel = True
-
-                if partial_cancel:
-                    self.logger().info(f"Order {order_id} was partially cancelled. Will wait for missing trade fills before cancelling.")
-                    self._partial_cancelled_orders_ultrade.add(order_id)
+                await self._ultrade_client.cancel_order(symbol, o_id, slot)
 
                 cancelled = True
-                self._requested_for_cancel_ultrade.discard(exchange_order_id)
             except Exception:
                 self.logger().info(f"Exception from Ultrade SDK on cancelling order {exchange_order_id}. "
                                    f"Order may have already been cancelled or filled.")
@@ -412,7 +385,7 @@ class UltradeExchange(ExchangePyBase):
         return retval
 
     async def _status_polling_loop_fetch_updates(self):
-        await self._update_order_fills_from_trades()
+        await self._update_order_fills_and_status()
         await super()._status_polling_loop_fetch_updates()
 
     async def _update_trading_fees(self):
@@ -436,23 +409,21 @@ class UltradeExchange(ExchangePyBase):
                         o_id = message['orderId']
                         tracked_order = next((order for order in self._order_tracker.all_orders.values() if order.exchange_order_id is not None and str(o_id) == order.exchange_order_id.split('-')[0]), None)
                         if tracked_order is not None:
-                            if tracked_order.client_order_id not in self._partial_cancelled_orders_ultrade:
-                                self.logger().info(f"Order {tracked_order.client_order_id} was cancelled.")
-                                order_update = OrderUpdate(
-                                    trading_pair=tracked_order.trading_pair,
-                                    update_timestamp=time.time(),
-                                    new_state=OrderState.CANCELED,
-                                    client_order_id=tracked_order.client_order_id,
-                                    exchange_order_id=tracked_order.exchange_order_id,
-                                )
-                                self._order_tracker.process_order_update(order_update=order_update)
+                            order_update = OrderUpdate(
+                                trading_pair=tracked_order.trading_pair,
+                                update_timestamp=time.time(),
+                                new_state=OrderState.CANCELED,
+                                client_order_id=tracked_order.client_order_id,
+                                exchange_order_id=tracked_order.exchange_order_id,
+                            )
+                            self._order_tracker.process_order_update(order_update=order_update)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 self.logger().error("Unexpected error in user stream listener loop.", exc_info=True)
                 await self._sleep(5.0)
 
-    async def _update_order_fills_from_trades(self):
+    async def _update_order_fills_and_status(self):
         """
         This is intended to be a backup measure to get filled events with trade ID for orders,
         in case Ultrade's user stream events are not working.
@@ -517,9 +488,10 @@ class UltradeExchange(ExchangePyBase):
                     fill_price = int(trade['trade_price']) if trade['trade_price'] else 0
                     fill_price = self.from_fixed_point(quote, fill_price)
                     fill_quote_amount = fill_base_amount * fill_price
+
+                    tracked_order = order_by_exchange_id_map.get(exchange_order_id, None)
                     if exchange_order_id in order_by_exchange_id_map and fill_price and trade['trades_id']:
                         # This is a fill for a tracked order
-                        tracked_order = order_by_exchange_id_map[exchange_order_id]
                         fee = TradeFeeBase.new_spot_fee(
                             fee_schema=self.trade_fee_schema(),
                             trade_type=tracked_order.trade_type,
@@ -549,17 +521,16 @@ class UltradeExchange(ExchangePyBase):
                             )
                             self._order_tracker.process_order_update(order_update)
 
-                        if status == OrderState.CANCELED:
-                            # This is a cancelled status update for a tracked order
-                            order_update = OrderUpdate(
-                                trading_pair=tracked_order.trading_pair,
-                                update_timestamp=time.time(),
-                                new_state=OrderState.CANCELED,
-                                client_order_id=tracked_order.client_order_id,
-                                exchange_order_id=tracked_order.exchange_order_id,
-                            )
-                            self._order_tracker.process_order_update(order_update)
-                            self._partial_cancelled_orders_ultrade.discard(tracked_order.client_order_id)
+                    if tracked_order and status == OrderState.CANCELED:
+                        # This is a cancelled status update for a tracked order
+                        order_update = OrderUpdate(
+                            trading_pair=tracked_order.trading_pair,
+                            update_timestamp=time.time(),
+                            new_state=OrderState.CANCELED,
+                            client_order_id=tracked_order.client_order_id,
+                            exchange_order_id=tracked_order.exchange_order_id,
+                        )
+                        self._order_tracker.process_order_update(order_update)
 
     async def _update_orders_fills(self, orders: List[InFlightOrder]):
         pass
