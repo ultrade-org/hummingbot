@@ -67,6 +67,8 @@ connector_status = {
     'woo_x': 'bronze',
     'woo_x_testnet': 'bronze',
     'kujira': 'bronze',
+    'ultrade': 'bronze',
+    'ultrade_testnet': 'bronze',
 }
 
 warning_messages = {
