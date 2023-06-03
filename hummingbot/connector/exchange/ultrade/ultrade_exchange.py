@@ -243,7 +243,7 @@ class UltradeExchange(ExchangePyBase):
         base, quote = list(map(lambda x: x, trading_pair.split("-")))
         quantity_int = self.to_fixed_point(base, amount)
         price_int = self.to_fixed_point(quote, price)
-        type_str = '0' if order_type is OrderType.LIMIT else 'M'
+        type_str = 'L' if order_type is OrderType.LIMIT else 'M'
         side_str = 'B' if trade_type is TradeType.BUY else 'S'
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
 

@@ -29,7 +29,7 @@ async def main():
 
     # create a taker order
     try:
-        order_info = await client.new_order('algo_usdc', 'S', '0', 2000000, 10000000)
+        order_info = await client.new_order('algo_usdc', 'S', 'L', 2000000, 10000000)
         print(order_info)
     except asyncio.CancelledError:
         raise
