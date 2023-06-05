@@ -152,9 +152,6 @@ class UltradeExchange(ExchangePyBase):
     def supported_order_types(self):
         return [OrderType.LIMIT]
 
-    def _is_request_exception_related_to_time_synchronizer(self, request_exception: Exception):
-        return False
-
     def _create_web_assistants_factory(self) -> WebAssistantsFactory:
         return web_utils.build_api_factory(
             throttler=self._throttler,
@@ -230,6 +227,18 @@ class UltradeExchange(ExchangePyBase):
         for trading_rule in trading_rules_list:
             self._trading_rules[trading_rule.trading_pair] = trading_rule
         self._initialize_trading_pair_symbols_from_exchange_info(exchange_info=exchange_info)
+
+    def _is_request_exception_related_to_time_synchronizer(self, request_exception: Exception):
+        # TODO: implement this method correctly for the connector
+        return False
+
+    def _is_order_not_found_during_status_update_error(self, status_update_exception: Exception) -> bool:
+        # TODO: implement this method correctly for the connector
+        return False
+
+    def _is_order_not_found_during_cancelation_error(self, cancelation_exception: Exception) -> bool:
+        # TODO: implement this method correctly for the connector
+        return False
 
     async def _place_order(self,
                            order_id: str,
