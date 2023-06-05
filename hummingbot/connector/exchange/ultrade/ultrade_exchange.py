@@ -229,8 +229,10 @@ class UltradeExchange(ExchangePyBase):
         self._initialize_trading_pair_symbols_from_exchange_info(exchange_info=exchange_info)
 
     def _is_request_exception_related_to_time_synchronizer(self, request_exception: Exception):
-        # TODO: implement this method correctly for the connector
-        return False
+        error_description = str(request_exception)
+        is_time_synchronizer_related = ("-1021" in error_description
+                                        and "Timestamp for this request" in error_description)
+        return is_time_synchronizer_related
 
     def _is_order_not_found_during_status_update_error(self, status_update_exception: Exception) -> bool:
         return str(CONSTANTS.ORDER_NOT_EXIST_ERROR_CODE) in str(
