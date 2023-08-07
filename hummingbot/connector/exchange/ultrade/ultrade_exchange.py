@@ -567,11 +567,16 @@ class UltradeExchange(ExchangePyBase):
         remote_asset_names = set()
 
         balances = await self._ultrade_client.get_account_balances()
+        for key in balances:
+            asset_name = balances[key].get("asset", None)
+            if asset_name is None:
+                continue
 
-        for balance_entry in balances:
-            asset_name = balance_entry["asset"]
-            self._account_available_balances = balance_entry["free"]
-            self._account_balances = balance_entry["total"]
+            free_balance = self.from_fixed_point(asset_name, int(balances[key].get("free", 0)))
+            total_balance = self.from_fixed_point(asset_name, int(balances[key].get("total", 0)))
+
+            self._account_available_balances[asset_name] = free_balance
+            self._account_balances[asset_name] = total_balance
             remote_asset_names.add(asset_name)
 
         asset_names_to_remove = local_asset_names.difference(remote_asset_names)
@@ -708,6 +713,8 @@ class UltradeExchange(ExchangePyBase):
         return list(ret_val)
 
     def from_fixed_point(self, asset: str, value: int) -> Decimal:
+        if asset is None:
+            return Decimal(0)
         asset: str = asset.upper()
         value = Decimal(str(value)) / Decimal(str(self._conversion_rules_ultrade[asset]))
 
