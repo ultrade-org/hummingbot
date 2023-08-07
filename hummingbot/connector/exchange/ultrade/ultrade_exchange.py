@@ -280,7 +280,7 @@ class UltradeExchange(ExchangePyBase):
 
         try:
             incomplete_orders = [o for o in self.in_flight_orders.values() if not o.is_done]
-            tasks = [self._ultrade_client.cancel_all_orders(await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)) for trading_pair in self._trading_pairs]
+            tasks = [self._ultrade_client.cancel_all_orders(await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair), 2000) for trading_pair in self._trading_pairs]
             order_id_set = set([o.client_order_id for o in incomplete_orders])
             failed_cancellations = []
 
@@ -321,7 +321,7 @@ class UltradeExchange(ExchangePyBase):
             o_id, slot = list(map(lambda x: int(x), exchange_order_id.split(('-'))))
             try:
                 self._requested_for_cancel_ultrade.add(exchange_order_id)
-                await self._ultrade_client.cancel_order(symbol, o_id, slot)
+                await self._ultrade_client.cancel_order(symbol, o_id, slot, 2000)
 
                 cancelled = True
             except Exception:
