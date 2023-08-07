@@ -462,14 +462,14 @@ class UltradeExchange(ExchangePyBase):
                         status=1))      # all orders except open orders
                     tasks.append(self._ultrade_client.get_orders(
                         symbol=symbol,
-                        status=-1))
+                        status=2))
                 tasks.append(self._ultrade_client.get_orders(
                     symbol=symbol,
                     status=1,
                     start_time=query_time))
                 tasks.append(self._ultrade_client.get_orders(
                     symbol=symbol,
-                    status=-1,
+                    status=2,
                     start_time=query_time))
 
             self.logger().debug(f"Polling for order fills of {len(tasks)} trading pairs.")
