@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from algosdk.v2client import algod
 from bidict import bidict
+from ultrade import api as ultrade_api, socket_options as SOCKET_OPTIONS
+from ultrade.sdk_client import Client as UltradeClient
 
 from hummingbot.connector.constants import s_decimal_NaN
 from hummingbot.connector.exchange.ultrade import (
@@ -27,8 +29,6 @@ from hummingbot.core.data_type.user_stream_tracker_data_source import UserStream
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
-from ultrade import api as ultrade_api, socket_options as SOCKET_OPTIONS
-from ultrade.sdk_client import Client as UltradeClient
 
 if TYPE_CHECKING:
     from hummingbot.client.config.config_helpers import ClientConfigAdapter
@@ -57,8 +57,8 @@ class UltradeExchange(ExchangePyBase):
         self._trading_pairs = trading_pairs
         self._last_trades_poll_ultrade_timestamp = 1.0
 
-        algod_address = "https://node.testnet.algoexplorerapi.io" if self._domain == "testnet" \
-            else "https://node.algoexplorerapi.io"
+        algod_address = "https://testnet-api.algonode.cloud" if self._domain == "testnet" \
+            else "https://mainnet-api.algonode.cloud"
         algod_client = algod.AlgodClient("", algod_address)
 
         self._ultrade_options = {
@@ -260,7 +260,7 @@ class UltradeExchange(ExchangePyBase):
         side_str = 'B' if trade_type is TradeType.BUY else 'S'
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
 
-        place_order_task = asyncio.create_task(self._ultrade_client.new_order(symbol, side_str, type_str, quantity_int, price_int))
+        place_order_task = asyncio.create_task(self._ultrade_client.new_order(symbol, side_str, type_str, quantity_int, price_int, 0, "Y"))
         order_info = await place_order_task
         order_id_slot = f"{order_info['order_id']}-{order_info['slot']}"
         transact_time = time.time()
@@ -566,36 +566,16 @@ class UltradeExchange(ExchangePyBase):
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
 
-        exchange_info_list = await self._get_ultrade_trading_pairs()
-        pairs = [pair_info.get("pair_key") for pair_info in filter(ultrade_utils.is_exchange_information_valid, exchange_info_list)]
+        balances = await self._ultrade_client.get_account_balances()
 
-        tasks = []
-        for pair in pairs:
-            tasks.append(self._ultrade_client.get_balances(pair))
-
-        balances = await safe_gather(*tasks, return_exceptions=True)
-
-        for pair, balance in zip(pairs, balances):
-            base, quote = list(map(lambda x: x.upper(), pair.split("_")))
-
-            if isinstance(balance, Exception):
-                continue
-
-            base_wallet = self.from_fixed_point(base, int(balance.get("baseCoin", 0)))
-            base_available = self.from_fixed_point(base, int(balance.get("baseCoin_available", 0)))
-            base_locked = self.from_fixed_point(base, int(balance.get("baseCoin_locked", 0)))
-            quote_wallet = self.from_fixed_point(base, int(balance.get("priceCoin", 0)))
-            quote_available = self.from_fixed_point(base, int(balance.get("priceCoin_available", 0)))
-            quote_locked = self.from_fixed_point(base, int(balance.get("priceCoin_locked", 0)))
-
-            self._account_available_balances[base] = base_available + base_wallet
-            self._account_balances[base] = base_available + base_wallet + base_locked
-            self._account_available_balances[quote] = quote_available + quote_wallet
-            self._account_balances[quote] = quote_available + quote_wallet + quote_locked
-            remote_asset_names.add(base)
-            remote_asset_names.add(quote)
+        for balance_entry in balances:
+            asset_name = balance_entry["asset"]
+            self._account_available_balances = balance_entry["free"]
+            self._account_balances = balance_entry["total"]
+            remote_asset_names.add(asset_name)
 
         asset_names_to_remove = local_asset_names.difference(remote_asset_names)
+
         for asset_name in asset_names_to_remove:
             del self._account_available_balances[asset_name]
             del self._account_balances[asset_name]
