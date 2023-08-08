@@ -397,7 +397,7 @@ class UltradeExchange(ExchangePyBase):
         return retval
 
     async def _status_polling_loop_fetch_updates(self):
-        await self._update_order_fills_and_status()
+        # await self._update_order_fills_and_status()
         await super()._status_polling_loop_fetch_updates()
 
     async def _update_trading_fees(self):
@@ -444,106 +444,106 @@ class UltradeExchange(ExchangePyBase):
         events, since Ultrade's get order endpoint does not return trade IDs.
         The minimum poll interval for order status is 10 seconds.
         """
-        # if self.in_flight_orders:
-        #     query_time = int(self._last_trades_poll_ultrade_timestamp * 1e3)
-        #     self._last_trades_poll_ultrade_timestamp = self._time_synchronizer.time()
-        #     order_by_exchange_id_map = {}
-        #     for order in self._order_tracker.all_fillable_orders.values():
-        #         order_by_exchange_id_map[order.exchange_order_id] = order
+        if self.in_flight_orders:
+            query_time = int(self._last_trades_poll_ultrade_timestamp * 1e3)
+            self._last_trades_poll_ultrade_timestamp = self._time_synchronizer.time()
+            order_by_exchange_id_map = {}
+            for order in self._order_tracker.all_fillable_orders.values():
+                order_by_exchange_id_map[order.exchange_order_id] = order
 
-        #     tasks = []
-        #     trading_pairs = self.trading_pairs
-        #     for trading_pair in trading_pairs:
-        #         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-        #         if self._last_poll_timestamp > 0:
-        #             tasks.append(self._ultrade_client.get_orders(
-        #                 symbol=symbol,
-        #                 status=1))      # all orders except open orders
-        #             tasks.append(self._ultrade_client.get_orders(
-        #                 symbol=symbol,
-        #                 status=2))
-        #         else:
-        #             tasks.append(self._ultrade_client.get_orders(
-        #                 symbol=symbol,
-        #                 status=1,
-        #                 start_time=query_time))
-        #             tasks.append(self._ultrade_client.get_orders(
-        #                 symbol=symbol,
-        #                 status=2,
-        #                 start_time=query_time))
+            tasks = []
+            trading_pairs = self.trading_pairs
+            for trading_pair in trading_pairs:
+                symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
+                if self._last_poll_timestamp > 0:
+                    tasks.append(self._ultrade_client.get_orders(
+                        symbol=symbol,
+                        status=1))      # all orders except open orders
+                    tasks.append(self._ultrade_client.get_orders(
+                        symbol=symbol,
+                        status=2))
+                else:
+                    tasks.append(self._ultrade_client.get_orders(
+                        symbol=symbol,
+                        status=1,
+                        start_time=query_time))
+                    tasks.append(self._ultrade_client.get_orders(
+                        symbol=symbol,
+                        status=2,
+                        start_time=query_time))
 
-        #     self.logger().debug(f"Polling for order fills of {len(tasks)} trading pairs.")
-        #     results = await safe_gather(*tasks, return_exceptions=True)
-        #     results = [results[2 * i:(2 * i) + 2] for i in range(int(len(results) / 2))]
+            self.logger().debug(f"Polling for order fills of {len(tasks)} trading pairs.")
+            results = await safe_gather(*tasks, return_exceptions=True)
+            results = [results[2 * i:(2 * i) + 2] for i in range(int(len(results) / 2))]
 
-        #     for trade_chunks, trading_pair in zip(results, trading_pairs):
-        #         base, quote = list(map(lambda x: x, trading_pair.split("-")))
-        #         open_order_trades, other_order_trades = trade_chunks
+            for trade_chunks, trading_pair in zip(results, trading_pairs):
+                base, quote = list(map(lambda x: x, trading_pair.split("-")))
+                open_order_trades, other_order_trades = trade_chunks
 
-        #         if isinstance(open_order_trades, Exception):
-        #             self.logger().network(
-        #                 f"Error fetching trades update for the order {trading_pair}: {open_order_trades}.",
-        #                 app_warning_msg=f"Failed to fetch trade update for {trading_pair}."
-        #             )
-        #             open_order_trades = []
-        #         if isinstance(other_order_trades, Exception):
-        #             self.logger().network(
-        #                 f"Error fetching trades update for the order {trading_pair}: {other_order_trades}.",
-        #                 app_warning_msg=f"Failed to fetch trade update for {trading_pair}."
-        #             )
-        #             other_order_trades = []
-        #         for trade in open_order_trades + other_order_trades:
-        #             exchange_order_id = f"{trade.get('orders_id', None)}-{trade.get('slot', None)}"
-        #             status = CONSTANTS.ORDER_STATE[int(trade['order_status'])]
+                if isinstance(open_order_trades, Exception):
+                    self.logger().network(
+                        f"Error fetching trades update for the order {trading_pair}: {open_order_trades}.",
+                        app_warning_msg=f"Failed to fetch trade update for {trading_pair}."
+                    )
+                    open_order_trades = []
+                if isinstance(other_order_trades, Exception):
+                    self.logger().network(
+                        f"Error fetching trades update for the order {trading_pair}: {other_order_trades}.",
+                        app_warning_msg=f"Failed to fetch trade update for {trading_pair}."
+                    )
+                    other_order_trades = []
+                for trade in open_order_trades + other_order_trades:
+                    exchange_order_id = f"{trade.get('orders_id', None)}-{trade.get('slot', None)}"
+                    status = CONSTANTS.ORDER_STATE[int(trade['order_status'])]
 
-        #             fill_base_amount = int(trade['trade_amount']) if trade['trade_amount'] else 0
-        #             fill_base_amount = self.from_fixed_point(base, fill_base_amount)
-        #             fill_price = int(trade['trade_price']) if trade['trade_price'] else 0
-        #             fill_price = self.from_fixed_point(quote, fill_price)
-        #             fill_quote_amount = fill_base_amount * fill_price
+                    fill_base_amount = int(trade['trade_amount']) if trade['trade_amount'] else 0
+                    fill_base_amount = self.from_fixed_point(base, fill_base_amount)
+                    fill_price = int(trade['trade_price']) if trade['trade_price'] else 0
+                    fill_price = self.from_fixed_point(quote, fill_price)
+                    fill_quote_amount = fill_base_amount * fill_price
 
-        #             tracked_order = order_by_exchange_id_map.get(exchange_order_id, None)
-        #             if exchange_order_id in order_by_exchange_id_map and fill_price and trade['trades_id']:
-        #                 # This is a fill for a tracked order
-        #                 fee = TradeFeeBase.new_spot_fee(
-        #                     fee_schema=self.trade_fee_schema(),
-        #                     trade_type=tracked_order.trade_type,
-        #                     percent_token=trading_pair.split('-')[0]
-        #                 )
-        #                 trade_update = TradeUpdate(
-        #                     trade_id=str(trade["trades_id"]),
-        #                     client_order_id=tracked_order.client_order_id,
-        #                     exchange_order_id=exchange_order_id,
-        #                     trading_pair=trading_pair,
-        #                     fee=fee,
-        #                     fill_base_amount=fill_base_amount,
-        #                     fill_quote_amount=fill_quote_amount,
-        #                     fill_price=fill_price,
-        #                     fill_timestamp=time.time(),
-        #                 )
-        #                 self._order_tracker.process_trade_update(trade_update)
+                    tracked_order = order_by_exchange_id_map.get(exchange_order_id, None)
+                    if exchange_order_id in order_by_exchange_id_map and fill_price and trade['trades_id']:
+                        # This is a fill for a tracked order
+                        fee = TradeFeeBase.new_spot_fee(
+                            fee_schema=self.trade_fee_schema(),
+                            trade_type=tracked_order.trade_type,
+                            percent_token=trading_pair.split('-')[0]
+                        )
+                        trade_update = TradeUpdate(
+                            trade_id=str(trade["trades_id"]),
+                            client_order_id=tracked_order.client_order_id,
+                            exchange_order_id=exchange_order_id,
+                            trading_pair=trading_pair,
+                            fee=fee,
+                            fill_base_amount=fill_base_amount,
+                            fill_quote_amount=fill_quote_amount,
+                            fill_price=fill_price,
+                            fill_timestamp=time.time(),
+                        )
+                        self._order_tracker.process_trade_update(trade_update)
 
-        #                 if status == OrderState.FILLED:
-        #                     # This is a filled status update for a tracked order
-        #                     order_update = OrderUpdate(
-        #                         trading_pair=tracked_order.trading_pair,
-        #                         update_timestamp=time.time(),
-        #                         new_state=OrderState.FILLED,
-        #                         client_order_id=tracked_order.client_order_id,
-        #                         exchange_order_id=tracked_order.exchange_order_id,
-        #                     )
-        #                     self._order_tracker.process_order_update(order_update)
+                        if status == OrderState.FILLED:
+                            # This is a filled status update for a tracked order
+                            order_update = OrderUpdate(
+                                trading_pair=tracked_order.trading_pair,
+                                update_timestamp=time.time(),
+                                new_state=OrderState.FILLED,
+                                client_order_id=tracked_order.client_order_id,
+                                exchange_order_id=tracked_order.exchange_order_id,
+                            )
+                            self._order_tracker.process_order_update(order_update)
 
-        #             if tracked_order and status == OrderState.CANCELED:
-        #                 # This is a cancelled status update for a tracked order
-        #                 order_update = OrderUpdate(
-        #                     trading_pair=tracked_order.trading_pair,
-        #                     update_timestamp=time.time(),
-        #                     new_state=OrderState.CANCELED,
-        #                     client_order_id=tracked_order.client_order_id,
-        #                     exchange_order_id=tracked_order.exchange_order_id,
-        #                 )
-        #                 self._order_tracker.process_order_update(order_update)
+                    if tracked_order and status == OrderState.CANCELED:
+                        # This is a cancelled status update for a tracked order
+                        order_update = OrderUpdate(
+                            trading_pair=tracked_order.trading_pair,
+                            update_timestamp=time.time(),
+                            new_state=OrderState.CANCELED,
+                            client_order_id=tracked_order.client_order_id,
+                            exchange_order_id=tracked_order.exchange_order_id,
+                        )
+                        self._order_tracker.process_order_update(order_update)
 
     async def _update_orders_fills(self, orders: List[InFlightOrder]):
         pass
