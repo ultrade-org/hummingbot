@@ -149,7 +149,8 @@ class UltradeExchange(ExchangePyBase):
         return self._trading_required
 
     def supported_order_types(self):
-        return [OrderType.LIMIT]
+        # OrderType.MARKET
+        return [OrderType.LIMIT, OrderType.LIMIT_MAKER]
 
     def _create_web_assistants_factory(self) -> WebAssistantsFactory:
         return web_utils.build_api_factory(
@@ -255,7 +256,7 @@ class UltradeExchange(ExchangePyBase):
         base, quote = list(map(lambda x: x, trading_pair.split("-")))
         quantity_int = self.to_fixed_point(base, amount)
         price_int = self.to_fixed_point(quote, price)
-        type_str = 'L' if order_type is OrderType.LIMIT else 'M'
+        type_str = 'L' if order_type is OrderType.LIMIT else 'P'
         side_str = 'B' if trade_type is TradeType.BUY else 'S'
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
 
@@ -323,7 +324,11 @@ class UltradeExchange(ExchangePyBase):
                 await self._ultrade_client.cancel_order(symbol, o_id, slot, 2000)
 
                 cancelled = True
-            except Exception:
+            except Exception as e:
+                if str(e) == "Order not found":
+                    cancelled = True
+                    return cancelled
+
                 self.logger().info(f"Exception from Ultrade SDK on cancelling order {exchange_order_id}. "
                                    f"Order may have already been cancelled or filled.")
                 cancelled = False
@@ -417,18 +422,62 @@ class UltradeExchange(ExchangePyBase):
                 event_type = event_message.get('type')
                 if event_type == 'order':
                     action, message = event_message.get('message')
+                    o_id = message['orderId']
+                    tracked_order = next((order for order in self._order_tracker.all_orders.values() if order.exchange_order_id is not None and str(o_id) == order.exchange_order_id.split('-')[0]), None)
+                    if tracked_order is None:
+                        continue
+
+                    base, quote = tracked_order.trading_pair.split('-')
                     if action == 'cancel':
-                        o_id = message['orderId']
-                        tracked_order = next((order for order in self._order_tracker.all_orders.values() if order.exchange_order_id is not None and str(o_id) == order.exchange_order_id.split('-')[0]), None)
-                        if tracked_order is not None:
-                            order_update = OrderUpdate(
-                                trading_pair=tracked_order.trading_pair,
-                                update_timestamp=time.time(),
-                                new_state=OrderState.CANCELED,
-                                client_order_id=tracked_order.client_order_id,
-                                exchange_order_id=tracked_order.exchange_order_id,
-                            )
-                            self._order_tracker.process_order_update(order_update=order_update)
+                        order_update = OrderUpdate(
+                            trading_pair=tracked_order.trading_pair,
+                            update_timestamp=time.time(),
+                            new_state=OrderState.CANCELED,
+                            client_order_id=tracked_order.client_order_id,
+                            exchange_order_id=tracked_order.exchange_order_id,
+                        )
+                        self._order_tracker.process_order_update(order_update=order_update)
+
+                    if action == "update":
+                        updated_order = message['updatedOrder']
+                        if updated_order is None:
+                            continue
+
+                        fee = TradeFeeBase.new_spot_fee(
+                            fee_schema=self.trade_fee_schema(),
+                            trade_type=tracked_order.trade_type,
+                            percent_token=base
+                        )
+                        fill_base_amount = int(updated_order.get("order_filled_amount", 0))
+                        fill_base_amount = self.from_fixed_point(base, fill_base_amount)
+                        fill_price = tracked_order.price
+                        fill_quote_amount = fill_base_amount * fill_price
+
+                        trade_update = TradeUpdate(
+                            # replace hardcoded trade id
+                            trade_id=str("1"),
+                            client_order_id=tracked_order.client_order_id,
+                            exchange_order_id=tracked_order.exchange_order_id,
+                            trading_pair=tracked_order.trading_pair,
+                            fee=fee,
+                            fill_base_amount=fill_base_amount,
+                            fill_quote_amount=fill_quote_amount,
+                            fill_price=fill_price,
+                            fill_timestamp=time.time(),
+                        )
+                        self._order_tracker.process_trade_update(trade_update)
+                        if updated_order["completed_at"] is None:
+                            continue
+
+                        # This is a filled status update for a tracked order
+                        order_update = OrderUpdate(
+                            trading_pair=tracked_order.trading_pair,
+                            update_timestamp=time.time(),
+                            new_state=OrderState.FILLED,
+                            client_order_id=tracked_order.client_order_id,
+                            exchange_order_id=tracked_order.exchange_order_id,
+                        )
+                        self._order_tracker.process_order_update(order_update=order_update)
             except asyncio.CancelledError:
                 raise
             except Exception:
