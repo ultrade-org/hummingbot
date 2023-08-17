@@ -455,8 +455,8 @@ class UltradeExchange(ExchangePyBase):
                         fill_quote_amount = fill_base_amount * fill_price
 
                         trade_update = TradeUpdate(
-                            # replace hardcoded trade id
-                            trade_id=str("1"),
+                            # replace with trade id from api
+                            trade_id=str(round(time.time() * 1000)),
                             client_order_id=tracked_order.client_order_id,
                             exchange_order_id=tracked_order.exchange_order_id,
                             trading_pair=tracked_order.trading_pair,
