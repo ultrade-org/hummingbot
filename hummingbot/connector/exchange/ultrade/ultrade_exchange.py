@@ -56,6 +56,7 @@ class UltradeExchange(ExchangePyBase):
         self._trading_required = trading_required
         self._trading_pairs = trading_pairs
         self._last_trades_poll_ultrade_timestamp = 1.0
+        self.available_trading_pairs = None
 
         algod_address = "https://testnet-api.algonode.cloud" if self._domain == "testnet" \
             else "https://mainnet-api.algonode.cloud"
@@ -615,7 +616,10 @@ class UltradeExchange(ExchangePyBase):
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
 
-        get_balances_task = asyncio.create_task(self._ultrade_client.get_account_balances())
+        if self.available_trading_pairs is None:
+            self.available_trading_pairs = await self._ultrade_api.get_pair_list()
+
+        get_balances_task = asyncio.create_task(self._ultrade_client.get_account_balances(self.available_trading_pairs))
         await self._sleep(2)
         balances = await get_balances_task
 
