@@ -70,7 +70,7 @@ class UltradeExchange(ExchangePyBase):
 
         self._ultrade_credentials = {"mnemonic": ultrade_mnemonic}
 
-        self._ultrade_client = UltradeClient(self._ultrade_credentials, self._ultrade_options)
+        self._ultrade_client = ultrade_utils.init_ultrade_client(self._ultrade_credentials, self._ultrade_options)
         self._ultrade_api = ultrade_api
 
         self._conversion_rules_ultrade = {}
@@ -613,6 +613,9 @@ class UltradeExchange(ExchangePyBase):
         pass
 
     async def _update_balances(self):
+        if isinstance(self._ultrade_client, str):
+            raise Exception(self._ultrade_client)
+
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
 

@@ -7,6 +7,7 @@ from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTr
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 from hummingbot.logger import HummingbotLogger
 from ultrade.sdk_client import Client as UltradeClient
+from hummingbot.connector.exchange.ultrade import ultrade_utils
 
 if TYPE_CHECKING:
     from hummingbot.connector.exchange.ultrade.ultrade_exchange import UltradeExchange
@@ -29,7 +30,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self._snapshot_messages_queue_key = CONSTANTS.SNAPSHOT_EVENT_TYPE
         self._domain = domain
         self._api_factory = api_factory
-        self._ultrade_client = UltradeClient(self._connector._ultrade_credentials, self._connector._ultrade_options)
+        self._ultrade_client = self._ultrade_client = ultrade_utils.init_ultrade_client(self._ultrade_credentials, self._ultrade_options)
         self._connection_ids = set()
 
     async def get_last_traded_prices(self,

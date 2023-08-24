@@ -5,6 +5,7 @@ from pydantic import Field, SecretStr
 
 from hummingbot.client.config.config_data_types import BaseConnectorConfigMap, ClientFieldData
 from hummingbot.core.data_type.trade_fee import TradeFeeSchema
+from ultrade.sdk_client import Client as UltradeClient
 
 CENTRALIZED = True
 EXAMPLE_PAIR = "ALGO-USDC"
@@ -23,6 +24,14 @@ def is_exchange_information_valid(exchange_info: Dict[str, Any]) -> bool:
     :return: True if the trading pair is enabled, False otherwise
     """
     return exchange_info.get("is_active", False)
+
+
+def init_ultrade_client(creds, options):
+    try:
+        client = UltradeClient(creds, options)
+        return client
+    except Exception as e:
+        return str(e)
 
 
 class UltradeConfigMap(BaseConnectorConfigMap):
