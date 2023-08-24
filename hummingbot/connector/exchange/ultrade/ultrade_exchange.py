@@ -467,18 +467,18 @@ class UltradeExchange(ExchangePyBase):
                             fill_timestamp=time.time(),
                         )
                         self._order_tracker.process_trade_update(trade_update)
-                        if updated_order["completed_at"] is None:
-                            continue
+                        if updated_order["completed_at"] is not None and updated_order["order_status"] in [2, 3]:
+                            # This is a filled or canceled status update for a tracked order
+                            order_status = OrderState.FILLED if updated_order["order_status"] == 3 else OrderState.CANCELED
+                            order_update = OrderUpdate(
+                                trading_pair=tracked_order.trading_pair,
+                                update_timestamp=time.time(),
+                                new_state=order_status,
+                                client_order_id=tracked_order.client_order_id,
+                                exchange_order_id=tracked_order.exchange_order_id,
+                            )
+                            self._order_tracker.process_order_update(order_update=order_update)
 
-                        # This is a filled status update for a tracked order
-                        order_update = OrderUpdate(
-                            trading_pair=tracked_order.trading_pair,
-                            update_timestamp=time.time(),
-                            new_state=OrderState.FILLED,
-                            client_order_id=tracked_order.client_order_id,
-                            exchange_order_id=tracked_order.exchange_order_id,
-                        )
-                        self._order_tracker.process_order_update(order_update=order_update)
             except asyncio.CancelledError:
                 raise
             except Exception:
