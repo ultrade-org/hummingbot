@@ -64,11 +64,11 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 await self._process_socket_messages_ultrade_depth()
             except asyncio.CancelledError:
                 raise
+            except GeneratorExit:
+                break
             except Exception:
                 self.logger().exception("Unexpected error occurred when listening to order book streams. Retrying in 5 seconds...",)
                 await self._sleep(5.0)
-            finally:
-                continue
 
     async def _order_book_snapshot(self, trading_pair: str) -> OrderBookMessage:
         snapshot: Dict[str, Any] = await self._request_order_book_snapshot(trading_pair)

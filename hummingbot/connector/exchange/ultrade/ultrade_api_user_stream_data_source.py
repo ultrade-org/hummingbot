@@ -73,8 +73,8 @@ class UltradeAPIUserStreamDataSource(UserStreamTrackerDataSource):
                 await self._sleep(self.ONE_DAY)
             except asyncio.CancelledError:
                 raise
+            except GeneratorExit:
+                break
             except Exception:
                 self.logger().exception("Unexpected error while listening to user stream. Retrying after 5 seconds...")
                 await self._sleep(5.0)
-            finally:
-                continue
