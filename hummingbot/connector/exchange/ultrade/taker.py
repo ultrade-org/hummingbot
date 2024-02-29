@@ -3,7 +3,7 @@ import json
 
 from algosdk.v2client import algod
 
-from ultrade.sdk_client import Client as UltradeClient
+from ultrade import Client as UltradeClient
 
 # constants
 mnemonic = "desert credit remove robot rail violin notice wisdom fly divert kiss pioneer carbon return short chief resemble jealous response twice certain sight slow absorb more"

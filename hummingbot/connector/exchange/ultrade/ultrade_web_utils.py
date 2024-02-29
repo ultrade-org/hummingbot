@@ -9,8 +9,6 @@ from hummingbot.core.web_assistant.auth import AuthBase
 from hummingbot.core.web_assistant.connections.data_types import RESTMethod
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 
-from ultrade import api as ultrade_api
-
 
 def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> str:
     """
@@ -20,7 +18,6 @@ def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> st
     :return: the full URL to the endpoint
     """
     return CONSTANTS.REST_URL.format(domain) + CONSTANTS.PUBLIC_API_VERSION + path_url
-
 
 def private_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> str:
     """

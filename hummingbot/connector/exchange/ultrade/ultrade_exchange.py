@@ -5,8 +5,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from algosdk.v2client import algod
 from bidict import bidict
-from ultrade import api as ultrade_api, socket_options as SOCKET_OPTIONS
-from ultrade.sdk_client import Client as UltradeClient
+from ultrade import socket_options as SOCKET_OPTIONS, Client as UltradeClient, Signer
 
 from hummingbot.connector.constants import s_decimal_NaN
 from hummingbot.connector.exchange.ultrade import (
@@ -44,34 +43,37 @@ class UltradeExchange(ExchangePyBase):
 
     def __init__(self,
                  client_config_map: "ClientConfigAdapter",
-                 ultrade_mnemonic: str,
+                 ultrade_network: str,
+                 ultrade_trading_key: str,
                  ultrade_wallet_address: str,
+                 ultrade_mnemonic: str,
                  trading_pairs: Optional[List[str]] = None,
                  trading_required: bool = True,
                  domain: str = CONSTANTS.DEFAULT_DOMAIN,
                  ):
         self.mnemonic = ultrade_mnemonic
         self.wallet_address = ultrade_wallet_address
-        self._domain = domain
+        self.trading_key = ultrade_trading_key
+        self._domain = ultrade_network
         self._trading_required = trading_required
         self._trading_pairs = trading_pairs
         self._last_trades_poll_ultrade_timestamp = 1.0
         self.available_trading_pairs = None
 
-        algod_address = "https://testnet-api.algonode.cloud" if self._domain == "testnet" \
-            else "https://mainnet-api.algonode.cloud"
-        algod_client = algod.AlgodClient("", algod_address)
+        # algod_address = "https://testnet-api.algonode.cloud" if self._domain == "testnet" \
+        #     else "https://mainnet-api.algonode.cloud"
+        # algod_client = algod.AlgodClient("", algod_address)
 
-        self._ultrade_options = {
-            "network": f"{self._domain}",
-            "algo_sdk_client": algod_client,
-            "api_url": None,
-        }
+        # self._ultrade_options = {
+        #     "network": f"{self._domain}",
+        #     "algo_sdk_client": algod_client,
+        #     "api_url": None,
+        # }
 
-        self._ultrade_credentials = {"mnemonic": ultrade_mnemonic}
+        # self._ultrade_credentials = {"mnemonic": ultrade_mnemonic}
 
-        self._ultrade_client = ultrade_utils.init_ultrade_client(self._ultrade_credentials, self._ultrade_options)
-        self._ultrade_api = ultrade_api
+        self._ultrade_client = ultrade_utils.init_ultrade_client(self._domain, self.mnemonic, self.wallet_address, self.trading_key)
+        # self._ultrade_api = self._ultrade_client
 
         self._conversion_rules_ultrade = {}
         self.order_book_depth_queue_ultrade: asyncio.Queue = asyncio.Queue()
@@ -79,7 +81,7 @@ class UltradeExchange(ExchangePyBase):
         self._stop_event_set: asyncio.Event = asyncio.Event()
         self._connection_ids_ultrade = set()
         self._requested_for_cancel_ultrade = set()
-        self._conversion_rules_ultrade_set_event_task: asyncio.Event() = asyncio.Event()
+        self._conversion_rules_ultrade_set_event_task: asyncio.Event() = asyncio.Event() # type: ignore
         safe_ensure_future(self._initialize_conversion_rules_ultrade())
 
         # safe_ensure_future(self._subscribe_channles_ultrade())
@@ -159,14 +161,14 @@ class UltradeExchange(ExchangePyBase):
             time_synchronizer=self._time_synchronizer,
             domain=self._domain,
             auth=self._auth)
-
+    #TODO
     def _create_order_book_data_source(self) -> OrderBookTrackerDataSource:
         return UltradeAPIOrderBookDataSource(
             trading_pairs=self._trading_pairs,
             connector=self,
             domain=self.domain,
             api_factory=self._web_assistants_factory)
-
+    #TODO
     def _create_user_stream_data_source(self) -> UserStreamTrackerDataSource:
         return UltradeAPIUserStreamDataSource(
             auth=self._auth,
@@ -261,7 +263,15 @@ class UltradeExchange(ExchangePyBase):
         side_str = 'B' if trade_type is TradeType.BUY else 'S'
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
 
-        place_order_task = asyncio.create_task(self._ultrade_client.new_order(symbol, side_str, type_str, quantity_int, price_int, 0, "Y"))
+        place_order_task = asyncio.create_task(self._ultrade_client.create_order(
+            pair_id=None,
+            order_side=side_str,
+            order_type=type_str,
+            amount=quantity_int,
+            price=price_int,
+            
+
+        ))
         order_info = await place_order_task
         order_id_slot = f"{order_info['order_id']}-{order_info['slot']}"
         transact_time = time.time()
@@ -341,8 +351,7 @@ class UltradeExchange(ExchangePyBase):
         Checks connectivity with the exchange using the API
         """
         try:
-            # await self._ultrade_api.ping()
-            pass
+            await self._ultrade_client.ping()
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -620,7 +629,7 @@ class UltradeExchange(ExchangePyBase):
         remote_asset_names = set()
 
         if self.available_trading_pairs is None:
-            self.available_trading_pairs = await self._ultrade_api.get_pair_list()
+            self.available_trading_pairs = await self._ultrade_client.get_pair_list()
 
         get_balances_task = asyncio.create_task(self._ultrade_client.get_account_balances(self.available_trading_pairs))
         await self._sleep(2)
@@ -738,9 +747,9 @@ class UltradeExchange(ExchangePyBase):
         return float(last_price)
 
     async def _get_ultrade_trading_pairs(self):
-        # self.logger().info("GET_TP:: START")
-        response = await self._ultrade_api.get_pair_list()
-        # self.logger().info(f"GET_TP:: {response}")
+        self.logger().info("GET_TP:: START")
+        response = await self._ultrade_client.get_pair_list()
+        self.logger().info(f"GET_TP:: {response}")
 
         return response
 

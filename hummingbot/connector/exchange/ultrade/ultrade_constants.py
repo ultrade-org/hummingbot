@@ -4,12 +4,17 @@ from hummingbot.core.data_type.common import OrderType, TradeType
 DEFAULT_DOMAIN = "mainnet"
 TESTNET_DOMAIN = "testnet"
 
+ULTRADE_NETORKS = [DEFAULT_DOMAIN, TESTNET_DOMAIN, "dev"]
+
 HBOT_ORDER_ID_PREFIX = "ULTR-"
 MAX_ORDER_ID_LEN = 32
 
 # Base URL
 REST_URL = "https://api.ultrade.{}/api/"
 WSS_URL = "wss://stream.ultrade.{}:9443/ws"
+
+ULTRADE_DEV_API_URL = "https://api.dev.ultradedev.net"
+ULTRADE_DEV_SOCKET_URL = "wss://ws.dev.ultradedev.net"
 
 PUBLIC_API_VERSION = "v3"
 PRIVATE_API_VERSION = "v3"

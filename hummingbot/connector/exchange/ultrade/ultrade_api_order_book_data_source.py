@@ -6,7 +6,6 @@ from hummingbot.core.data_type.order_book_message import OrderBookMessage, Order
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 from hummingbot.logger import HummingbotLogger
-from ultrade.sdk_client import Client as UltradeClient
 from hummingbot.connector.exchange.ultrade import ultrade_utils
 
 if TYPE_CHECKING:
@@ -49,7 +48,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
         symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
 
-        data = await self._connector._ultrade_api.get_depth(symbol)  # default maximum depth of 100 levels
+        data = await self._connector._ultrade_client.get_depth(symbol)  # default maximum depth of 100 levels
         order_book = self._connector.to_hb_order_book(data)
 
         return order_book
