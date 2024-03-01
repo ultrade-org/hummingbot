@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from algosdk.v2client import algod
 from bidict import bidict
 from ultrade import socket_options as SOCKET_OPTIONS, Client as UltradeClient, Signer
+from hummingbot.connector.exchange.ultrade.ultrade_constants import ULTRADE_DEV_API_URL, ULTRADE_DEV_SOCKET_URL
 
 from hummingbot.connector.constants import s_decimal_NaN
 from hummingbot.connector.exchange.ultrade import (
@@ -72,7 +73,7 @@ class UltradeExchange(ExchangePyBase):
 
         # self._ultrade_credentials = {"mnemonic": ultrade_mnemonic}
 
-        self._ultrade_client = ultrade_utils.init_ultrade_client(self._domain, self.mnemonic, self.wallet_address, self.trading_key)
+        self._ultrade_client = self._init_ultrade_client()
         # self._ultrade_api = self._ultrade_client
 
         self._conversion_rules_ultrade = {}
@@ -83,7 +84,6 @@ class UltradeExchange(ExchangePyBase):
         self._requested_for_cancel_ultrade = set()
         self._conversion_rules_ultrade_set_event_task: asyncio.Event() = asyncio.Event() # type: ignore
         safe_ensure_future(self._initialize_conversion_rules_ultrade())
-
         # safe_ensure_future(self._subscribe_channles_ultrade())
 
         super().__init__(client_config_map)
@@ -151,6 +151,24 @@ class UltradeExchange(ExchangePyBase):
     def is_trading_required(self) -> bool:
         return self._trading_required
 
+    def _init_ultrade_client(self):
+        try:
+            if self._domain == "dev":
+                self._ultrade_client = UltradeClient(network="testnet", api_url=ULTRADE_DEV_API_URL, websocket_url=ULTRADE_DEV_SOCKET_URL)
+            else:
+                self._ultrade_client = UltradeClient(network=self._domain)
+            
+            if len(self.trading_key) > 0 and len(self.wallet_address) > 0:
+                #set trading key
+                pass
+            else:
+                signer = Signer.create_signer(self.mnemonic)
+                # await self._ultrade_client.set_login_user(signer)
+                self._ultrade_client.set_login_user(signer)
+
+        except Exception as e:
+            self.logger().error(f"Error on Ultrade client init: {e}")
+
     def supported_order_types(self):
         # OrderType.MARKET
         return [OrderType.LIMIT, OrderType.LIMIT_MAKER]
@@ -161,14 +179,14 @@ class UltradeExchange(ExchangePyBase):
             time_synchronizer=self._time_synchronizer,
             domain=self._domain,
             auth=self._auth)
-    #TODO
+
     def _create_order_book_data_source(self) -> OrderBookTrackerDataSource:
         return UltradeAPIOrderBookDataSource(
             trading_pairs=self._trading_pairs,
             connector=self,
             domain=self.domain,
             api_factory=self._web_assistants_factory)
-    #TODO
+
     def _create_user_stream_data_source(self) -> UserStreamTrackerDataSource:
         return UltradeAPIUserStreamDataSource(
             auth=self._auth,
@@ -622,8 +640,8 @@ class UltradeExchange(ExchangePyBase):
         pass
 
     async def _update_balances(self):
-        if isinstance(self._ultrade_client, str):
-            raise Exception(self._ultrade_client)
+        # if isinstance(self._ultrade_client, str):
+        #     raise Exception(self._ultrade_client)
 
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
@@ -631,7 +649,8 @@ class UltradeExchange(ExchangePyBase):
         if self.available_trading_pairs is None:
             self.available_trading_pairs = await self._ultrade_client.get_pair_list()
 
-        get_balances_task = asyncio.create_task(self._ultrade_client.get_account_balances(self.available_trading_pairs))
+        # get_balances_task = asyncio.create_task(self._ultrade_client.(self.available_trading_pairs))
+        get_balances_task = self.get_balances()
         await self._sleep(2)
         balances = await get_balances_task
 
@@ -677,7 +696,7 @@ class UltradeExchange(ExchangePyBase):
                 'symbol': symbol,
                 'streams': [SOCKET_OPTIONS.DEPTH, SOCKET_OPTIONS.ORDERS],
                 'options': {
-                    'address': self.wallet_address,
+                    'address': self.wallet_address if self.wallet_address else self._ultrade_client._login_user.address,
                 }
             }
             self.user_stream_order_queue_ultrade.put_nowait({'type': 'init'})
@@ -747,9 +766,9 @@ class UltradeExchange(ExchangePyBase):
         return float(last_price)
 
     async def _get_ultrade_trading_pairs(self):
-        self.logger().info("GET_TP:: START")
+        # self.logger().info("GET_TP:: START")
         response = await self._ultrade_client.get_pair_list()
-        self.logger().info(f"GET_TP:: {response}")
+        # self.logger().info(f"GET_TP:: {response}")
 
         return response
 

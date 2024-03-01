@@ -29,7 +29,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self._snapshot_messages_queue_key = CONSTANTS.SNAPSHOT_EVENT_TYPE
         self._domain = domain
         self._api_factory = api_factory
-        self._ultrade_client = self._ultrade_client = ultrade_utils.init_ultrade_client(self._connector._ultrade_credentials, self._connector._ultrade_options)
+        self._ultrade_client = connector._ultrade_client
         self._connection_ids = set()
 
     async def get_last_traded_prices(self,

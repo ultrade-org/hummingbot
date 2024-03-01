@@ -6,7 +6,7 @@ import re
 
 from pydantic import Field, SecretStr, validator
 
-from hummingbot.connector.exchange.ultrade.ultrade_constants import ULTRADE_NETORKS, ULTRADE_DEV_API_URL, ULTRADE_DEV_SOCKET_URL
+from hummingbot.connector.exchange.ultrade.ultrade_constants import ULTRADE_NETORKS
 from hummingbot.client.config.config_data_types import BaseConnectorConfigMap, ClientFieldData
 from hummingbot.core.data_type.trade_fee import TradeFeeSchema
 from ultrade import Client as UltradeClient, Signer
@@ -54,22 +54,6 @@ def is_exchange_information_valid(exchange_info: Dict[str, Any]) -> bool:
     return exchange_info.get("is_active", False)
 
 
-def init_ultrade_client(network: str, mnemonic: str, wallet_address: str, trading_key: str) -> UltradeClient:
-    try:
-        client = UltradeClient(network)
-        if network == "dev":
-            client = UltradeClient(network="testnet", api_url=ULTRADE_DEV_API_URL, websocket_url=ULTRADE_DEV_SOCKET_URL)
-        if len(trading_key) > 0 and len(wallet_address) > 0:
-            #set trading key
-            return client
-        else:
-            signer = Signer.from_mnemonic(mnemonic)
-            client.set_login_user(signer)
-        return client
-    except Exception as e:
-        return str(e)
-
-
 class UltradeConfigMap(BaseConnectorConfigMap):    
     connector: str = Field(default="ultrade", const=True, client_data=None)
     ultrade_network: str = Field(
@@ -114,6 +98,7 @@ class UltradeConfigMap(BaseConnectorConfigMap):
         is_trading_key_valid = is_valid_algorand_address(v.get_secret_value())
         if not is_trading_key_valid and len(v.get_secret_value()) > 0:
             raise ValueError('Invalid Ultrade Trading Key provided.')
+        return v
 
     @validator('ultrade_network', always=True)
     def check_network(cls, v):
@@ -123,7 +108,7 @@ class UltradeConfigMap(BaseConnectorConfigMap):
 
     @validator('ultrade_wallet_address', always=True)
     def check_wallet_address(cls, v, values):
-        ultrade_trading_key = values.get('ultrade_trading_key', SecretStr('')).get_secret_value()
+        ultrade_trading_key = values.get('ultrade_trading_key') 
         wallet_address = v.get_secret_value() if v else ''
         is_valid = check_is_wallet_address_valid(wallet_address)
         if not is_valid and wallet_address:
@@ -134,7 +119,7 @@ class UltradeConfigMap(BaseConnectorConfigMap):
     
     @validator('ultrade_mnemonic', always=True)
     def check_mnemonic(cls, v, values):
-        ultrade_trading_key = values.get('ultrade_trading_key', SecretStr('')).get_secret_value()
+        ultrade_trading_key = values.get('ultrade_trading_key')
         mnemonic = v.get_secret_value() if v else ''
         if not ultrade_trading_key and not mnemonic:
             raise ValueError('Either Wallet mnemonic/Private key or Trading Key must be provided')
