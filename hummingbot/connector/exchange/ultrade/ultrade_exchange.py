@@ -61,18 +61,6 @@ class UltradeExchange(ExchangePyBase):
         self._last_trades_poll_ultrade_timestamp = 1.0
         self.available_trading_pairs = None
 
-        # algod_address = "https://testnet-api.algonode.cloud" if self._domain == "testnet" \
-        #     else "https://mainnet-api.algonode.cloud"
-        # algod_client = algod.AlgodClient("", algod_address)
-
-        # self._ultrade_options = {
-        #     "network": f"{self._domain}",
-        #     "algo_sdk_client": algod_client,
-        #     "api_url": None,
-        # }
-
-        # self._ultrade_credentials = {"mnemonic": ultrade_mnemonic}
-
         self._ultrade_client = ultrade_utils.init_ultrade_client(
             network=self._domain,
             trading_key=self.trading_key,
@@ -80,7 +68,6 @@ class UltradeExchange(ExchangePyBase):
             mnemonic=self.mnemonic,
         )
         # self._ultrade_api = self._ultrade_client
-
         self._conversion_rules_ultrade = {}
         self.order_book_depth_queue_ultrade: asyncio.Queue = asyncio.Queue()
         self.user_stream_order_queue_ultrade: asyncio.Queue = asyncio.Queue()
@@ -90,6 +77,8 @@ class UltradeExchange(ExchangePyBase):
         self._conversion_rules_ultrade_set_event_task: asyncio.Event() = asyncio.Event()  # type: ignore
         safe_ensure_future(self._initialize_conversion_rules_ultrade())
         # safe_ensure_future(self._subscribe_channles_ultrade())
+        self._asset_id_to_symbol_map: Dict[str, str] = {}
+        self._pair_symbol_to_pair_id_map: Dict[str, str] = {}
 
         super().__init__(client_config_map)
         self.real_time_balance_update = False
@@ -110,10 +99,7 @@ class UltradeExchange(ExchangePyBase):
 
     @property
     def name(self) -> str:
-        if self._domain == "mainnet":
-            return "ultrade"
-        else:
-            return f"ultrade_{self._domain}"
+        return "ultrade"
 
     @property
     def rate_limits_rules(self):
@@ -263,17 +249,17 @@ class UltradeExchange(ExchangePyBase):
         price: Decimal,
         **kwargs,
     ) -> Tuple[str, float]:
-        # order_result = None
         base, quote = list(map(lambda x: x, trading_pair.split("-")))
         quantity_int = self.to_fixed_point(base, amount)
         price_int = self.to_fixed_point(quote, price)
         type_str = "L" if order_type is OrderType.LIMIT else "P"
         side_str = "B" if trade_type is TradeType.BUY else "S"
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
+        pair_id = self._pair_symbol_to_pair_id_map[symbol]
 
         place_order_task = asyncio.create_task(
             self._ultrade_client.create_order(
-                pair_id=None,
+                pair_id=pair_id,
                 order_side=side_str,
                 order_type=type_str,
                 amount=quantity_int,
@@ -281,9 +267,9 @@ class UltradeExchange(ExchangePyBase):
             )
         )
         order_info = await place_order_task
-        order_id_slot = f"{order_info['order_id']}-{order_info['slot']}"
+        # order_id_slot = f"{order_info['order_id']}-{order_info['slot']}"
         transact_time = time.time()
-        return (order_id_slot, transact_time)
+        return ("test", transact_time)
 
     async def cancel_all(self, timeout_seconds: float) -> List[CancellationResult]:
         """
@@ -299,12 +285,18 @@ class UltradeExchange(ExchangePyBase):
 
         try:
             incomplete_orders = [o for o in self.in_flight_orders.values() if not o.is_done]
-            tasks = [
-                self._ultrade_client.cancel_all_orders(
-                    await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair), 2000
-                )
-                for trading_pair in self._trading_pairs
-            ]
+            tasks = []
+            # tasks = [
+            #     self._ultrade_client.cancel_order(
+            #         await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair), 2000
+            #     )
+
+            #     for trading_pair in self._trading_pairs
+            # ]
+            opened_orders = await self._ultrade_client.get_orders_with_trades(status=1)
+            for order in opened_orders:
+                order_id = order.get("id")
+                tasks.append(self._ultrade_client.cancel_order(order_id))
             order_id_set = set([o.client_order_id for o in incomplete_orders])
             failed_cancellations = []
 
@@ -430,7 +422,7 @@ class UltradeExchange(ExchangePyBase):
         return retval
 
     async def _status_polling_loop_fetch_updates(self):
-        # await self._update_order_fills_and_status()
+        await self._update_order_fills_and_status()
         await super()._status_polling_loop_fetch_updates()
 
     async def _update_trading_fees(self):
@@ -450,7 +442,7 @@ class UltradeExchange(ExchangePyBase):
                 event_type = event_message.get("type")
                 if event_type == "order":
                     action, message = event_message.get("message")
-                    o_id = message["orderId"]
+                    o_id = message["id"]
                     tracked_order = next(
                         (
                             order
@@ -542,7 +534,7 @@ class UltradeExchange(ExchangePyBase):
                 symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
                 if self._last_poll_timestamp > 0:
                     tasks.append(
-                        self._ultrade_client.get_orders(symbol=symbol, status=1)
+                        self._ultrade_client.get_orders_with_trades(symbol=symbol, status=1)
                     )  # all orders except open orders
                     tasks.append(self._ultrade_client.get_orders(symbol=symbol, status=2))
                 else:
@@ -646,6 +638,10 @@ class UltradeExchange(ExchangePyBase):
 
             if self.available_trading_pairs is None:
                 self.available_trading_pairs = await self._ultrade_client.get_pair_list()
+                for pair in self.available_trading_pairs:
+                    self._asset_id_to_symbol_map[pair["base_id"].lower()] = pair["base_currency"].upper()
+                    self._asset_id_to_symbol_map[pair["price_id"].lower()] = pair["price_currency"].upper()
+                    self._pair_symbol_to_pair_id_map[pair["pair_key"]] = pair["id"]
 
             get_balances_task = self._ultrade_client.get_balances()
             await self._sleep(2)
@@ -655,13 +651,15 @@ class UltradeExchange(ExchangePyBase):
             self._account_balances.clear()
 
             for item in balances:
-                asset_id = item.get("tokenId")
+                asset_id = item.get("tokenId").lower()
+                asset_name = self._asset_id_to_symbol_map.get(asset_id)
                 total_balance = int(item.get("amount", "0"))
                 locked_amount = int(item.get("lockedAmount", "0"))
                 free_balance = total_balance - locked_amount
 
-                self._account_available_balances[asset_id] = self.from_fixed_point(asset_name, free_balance)
-                self._account_balances[asset_id] = self.from_fixed_point(asset_name, total_balance)
+                self._account_available_balances[asset_name] = self.from_fixed_point(asset_name, free_balance)
+                self._account_balances[asset_name] = self.from_fixed_point(asset_name, total_balance)
+
         except Exception as e:
             self.logger().error("Error fetching balances...", exc_info=True)
             raise e
@@ -751,7 +749,7 @@ class UltradeExchange(ExchangePyBase):
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
         price_asset = trading_pair.split("-")[1]
 
-        resp_json = await self._ultrade_api.get_price(symbol)
+        resp_json = await self._ultrade_client.get_price(symbol=symbol)
         last_price = int(resp_json["last"]) if resp_json["last"] else 0
         last_price = self.from_fixed_point(price_asset, last_price)
 
@@ -774,7 +772,7 @@ class UltradeExchange(ExchangePyBase):
         tasks = []
         for trading_pair in self._trading_pairs:
             symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-            tasks.append(self._ultrade_client.get_orders(symbol=symbol, status=1))
+            tasks.append(self._ultrade_client.get_orders_with_trades(symbol=symbol))
         resusls = await safe_gather(*tasks, return_exceptions=True)
 
         ret_val = set()
