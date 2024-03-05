@@ -4,7 +4,8 @@ from hummingbot.core.data_type.common import OrderType, TradeType
 DEFAULT_DOMAIN = "mainnet"
 TESTNET_DOMAIN = "testnet"
 
-ULTRADE_NETORKS = [DEFAULT_DOMAIN, TESTNET_DOMAIN, "dev"]
+# add DEFAULT_DOMAIN when mainnet will be ready
+ULTRADE_NETORKS = [TESTNET_DOMAIN, "dev"]
 
 HBOT_ORDER_ID_PREFIX = "ULTR-"
 MAX_ORDER_ID_LEN = 32
@@ -40,23 +41,15 @@ ORDER_STATE = {
     1: OrderState.OPEN,
     2: OrderState.CANCELED,
     3: OrderState.FILLED,
-    4: OrderState.FILLED
+    4: OrderState.FILLED,
+    5: OrderState.FAILED,
 }
 
-TO_HB_ORDER_TYPE = {
-    0: OrderType.LIMIT, # LIMIT
-    3: OrderType.MARKET # MARKET
-}
+TO_HB_ORDER_TYPE = {0: OrderType.LIMIT, 3: OrderType.MARKET}  # LIMIT  # MARKET
 
-FROM_HB_ORDER_TYPE = {
-    OrderType.LIMIT: 0, # LIMIT
-    OrderType.MARKET: 3 # MARKET
-}
+FROM_HB_ORDER_TYPE = {OrderType.LIMIT: 0, OrderType.MARKET: 3}  # LIMIT  # MARKET
 
-ORDER_SIDE = {
-    0: TradeType.BUY,  # BUY
-    1: TradeType.SELL  # SELL
-}
+ORDER_SIDE = {0: TradeType.BUY, 1: TradeType.SELL}  # BUY  # SELL
 
 # Websocket event types
 TRADE_EVENT_TYPE = "trades"

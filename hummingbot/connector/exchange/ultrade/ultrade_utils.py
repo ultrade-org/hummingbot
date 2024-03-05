@@ -77,7 +77,7 @@ def is_exchange_information_valid(exchange_info: Dict[str, Any]) -> bool:
 class UltradeConfigMap(BaseConnectorConfigMap):
     connector: str = Field(default="ultrade", const=True, client_data=None)
     ultrade_network: str = Field(
-        default="mainnet",
+        default="testnet",
         client_data=ClientFieldData(
             prompt=lambda cm: f"Enter your Ultrade Network ({'/'.join(ULTRADE_NETORKS)})",
             is_secure=False,

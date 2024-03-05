@@ -3,7 +3,6 @@ import time
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-from algosdk.v2client import algod
 from bidict import bidict
 from ultrade import socket_options as SOCKET_OPTIONS
 
@@ -67,7 +66,6 @@ class UltradeExchange(ExchangePyBase):
             wallet_address=self.wallet_address,
             mnemonic=self.mnemonic,
         )
-        # self._ultrade_api = self._ultrade_client
         self._conversion_rules_ultrade = {}
         self.order_book_depth_queue_ultrade: asyncio.Queue = asyncio.Queue()
         self.user_stream_order_queue_ultrade: asyncio.Queue = asyncio.Queue()
@@ -267,9 +265,9 @@ class UltradeExchange(ExchangePyBase):
             )
         )
         order_info = await place_order_task
-        # order_id_slot = f"{order_info['order_id']}-{order_info['slot']}"
+        exchange_order_id = order_info["id"]
         transact_time = time.time()
-        return ("test", transact_time)
+        return (exchange_order_id, transact_time)
 
     async def cancel_all(self, timeout_seconds: float) -> List[CancellationResult]:
         """
@@ -285,18 +283,10 @@ class UltradeExchange(ExchangePyBase):
 
         try:
             incomplete_orders = [o for o in self.in_flight_orders.values() if not o.is_done]
-            tasks = []
-            # tasks = [
-            #     self._ultrade_client.cancel_order(
-            #         await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair), 2000
-            #     )
 
-            #     for trading_pair in self._trading_pairs
-            # ]
-            opened_orders = await self._ultrade_client.get_orders_with_trades(status=1)
-            for order in opened_orders:
-                order_id = order.get("id")
-                tasks.append(self._ultrade_client.cancel_order(order_id))
+            tasks = [
+                self._ultrade_client.cancel_order(order_id=int(order.exchange_order_id)) for order in incomplete_orders
+            ]
             order_id_set = set([o.client_order_id for o in incomplete_orders])
             failed_cancellations = []
 
@@ -313,7 +303,8 @@ class UltradeExchange(ExchangePyBase):
             for client_order_id in open_orders:
                 order_id_set.discard(client_order_id)
                 failed_cancellations.append(CancellationResult(client_order_id, False))
-        except Exception:
+        except Exception as e:
+            print(e)
             self.logger().network(
                 "Unexpected error cancelling orders.",
                 exc_info=True,
@@ -328,16 +319,14 @@ class UltradeExchange(ExchangePyBase):
         return cancelled
 
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder):
-        symbol = await self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
         exchange_order_id = await tracked_order.get_exchange_order_id()
 
         cancelled = False
 
         if exchange_order_id not in self._requested_for_cancel_ultrade:
-            o_id, slot = list(map(lambda x: int(x), exchange_order_id.split(("-"))))
             try:
                 self._requested_for_cancel_ultrade.add(exchange_order_id)
-                await self._ultrade_client.cancel_order(symbol, o_id, slot, 2000)
+                await self._ultrade_client.cancel_order(exchange_order_id)
 
                 cancelled = True
             except Exception as e:
@@ -442,13 +431,12 @@ class UltradeExchange(ExchangePyBase):
                 event_type = event_message.get("type")
                 if event_type == "order":
                     action, message = event_message.get("message")
-                    o_id = message["id"]
+                    o_id = message.get("id") or message.get("orderId")
                     tracked_order = next(
                         (
                             order
                             for order in self._order_tracker.all_orders.values()
-                            if order.exchange_order_id is not None
-                            and str(o_id) == order.exchange_order_id.split("-")[0]
+                            if order.exchange_order_id is not None and str(o_id) == order.exchange_order_id
                         ),
                         None,
                     )
@@ -522,7 +510,7 @@ class UltradeExchange(ExchangePyBase):
         The minimum poll interval for order status is 10 seconds.
         """
         if self.in_flight_orders:
-            query_time = int(self._last_trades_poll_ultrade_timestamp * 1e3)
+            # query_time = int(self._last_trades_poll_ultrade_timestamp * 1e3)
             self._last_trades_poll_ultrade_timestamp = self._time_synchronizer.time()
             order_by_exchange_id_map = {}
             for order in self._order_tracker.all_fillable_orders.values():
@@ -536,14 +524,14 @@ class UltradeExchange(ExchangePyBase):
                     tasks.append(
                         self._ultrade_client.get_orders_with_trades(symbol=symbol, status=1)
                     )  # all orders except open orders
-                    tasks.append(self._ultrade_client.get_orders(symbol=symbol, status=2))
+                    tasks.append(self._ultrade_client.get_orders_with_trades(symbol=symbol, status=2))
                 else:
-                    tasks.append(self._ultrade_client.get_orders(symbol=symbol, status=1, start_time=query_time))
-                    tasks.append(self._ultrade_client.get_orders(symbol=symbol, status=2, start_time=query_time))
+                    tasks.append(self._ultrade_client.get_orders_with_trades(symbol=symbol, status=1))
+                    tasks.append(self._ultrade_client.get_orders_with_trades(symbol=symbol, status=2))
 
             self.logger().debug(f"Polling for order fills of {len(tasks)} trading pairs.")
             results = await safe_gather(*tasks, return_exceptions=True)
-            results = [results[2 * i : (2 * i) + 2] for i in range(int(len(results) / 2))]
+            results = [results[2 * i: (2 * i) + 2] for i in range(int(len(results) / 2))]
 
             for trade_chunks, trading_pair in zip(results, trading_pairs):
                 base, quote = list(map(lambda x: x, trading_pair.split("-")))
