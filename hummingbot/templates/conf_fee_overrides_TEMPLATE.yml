@@ -162,9 +162,9 @@ ultrade_maker_percent_fee:
 ultrade_percent_fee_token:
 ultrade_taker_fixed_fees:
 ultrade_taker_percent_fee:
-ultrade_testnet_buy_percent_fee_deducted_from_returns:
-ultrade_testnet_maker_fixed_fees:
-ultrade_testnet_maker_percent_fee:
-ultrade_testnet_percent_fee_token:
-ultrade_testnet_taker_fixed_fees:
-ultrade_testnet_taker_percent_fee:
+# ultrade_testnet_buy_percent_fee_deducted_from_returns:
+# ultrade_testnet_maker_fixed_fees:
+# ultrade_testnet_maker_percent_fee:
+# ultrade_testnet_percent_fee_token:
+# ultrade_testnet_taker_fixed_fees:
+# ultrade_testnet_taker_percent_fee:
