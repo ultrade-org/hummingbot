@@ -1,0 +1,35 @@
+name: Sync hummingbot
+
+on: 
+  push:
+      branches:
+        - feat/ultrade-connector-v2-merge
+
+env:
+  MESSAGE: ${{ github.event.head_commit.message }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Get Commit Message
+        id: getMessage
+        run: |
+          echo "::set-output name=message::$MESSAGE"          
+
+      - name: Push updates
+        uses: dmnemec/copy_file_to_another_repo_action@main
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.PRIVATE_GITHUB_TOKEN }}
+        with:
+          source_file: '.' # Folder to copy
+          destination_repo: 'ultrade-org/spot-dex' # Target repo
+          destination_branch: UL-1619-humming-bot-sync #Change to develop later
+          destination_folder: 'hummingbot' # Folder where to copy it
+          user_email: '${{ github.actor }}'
+          user_name: '${{ github.actor }}'
+          commit_message: "${{ steps.getMessage.outputs.message }}"
+          git_server: 'github.com'
