@@ -60,3 +60,5 @@ dependencies:
   - xrpl-py==4.1.0
   - yaml>=0.2.5
   - zlib>=1.2.13
+  - pip:
+    - git+https://github.com/ultrade-org/ultrade-python-sdk.git
