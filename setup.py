@@ -111,7 +111,7 @@ def main():
         "web3",
         "websockets",
         "yarl",
-        "pandas_ta==0.3.14b",
+        "pandas_ta==0.3.14b0",
         "xrpl-py==4.0.0b3",
     ]
 
