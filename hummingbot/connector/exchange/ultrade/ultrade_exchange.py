@@ -1,6 +1,6 @@
 import asyncio
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from bidict import bidict
 
@@ -24,9 +24,6 @@ from hummingbot.core.data_type.user_stream_tracker_data_source import UserStream
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 from ultrade import Client as UltradeClient
 
-if TYPE_CHECKING:
-    from hummingbot.client.config.config_helpers import ClientConfigAdapter
-
 PRICE_TOKEN = "18DEC"   # this is the default token for price conversion rule
 
 
@@ -34,12 +31,13 @@ class UltradeExchange(ExchangePyBase):
     web_utils = web_utils
 
     def __init__(self,
-                 client_config_map: "ClientConfigAdapter",
                  ultrade_trading_key: str,
                  ultrade_wallet_address: str,
                  ultrade_company_id: str,
                  ultrade_api_url: str,
                  ultrade_mnemonic_key: str,
+                 balance_asset_limit: Optional[Dict[str, Dict[str, Decimal]]] = None,
+                 rate_limits_share_pct: Decimal = Decimal("100"),
                  trading_pairs: Optional[List[str]] = None,
                  trading_required: bool = True,
                  domain: str = CONSTANTS.DEFAULT_DOMAIN,
@@ -62,7 +60,7 @@ class UltradeExchange(ExchangePyBase):
         self._ultrade_token_address_asset_map: Optional[Dict[str, str]] = {}
         self._ultrade_token_id_asset_map: Optional[Dict[int, str]] = {}
         self._ultrade_pair_symbol_to_pair_id_map: Optional[Dict[str, int]] = {}
-        super().__init__(client_config_map)
+        super().__init__(balance_asset_limit, rate_limits_share_pct)
 
     def create_ultrade_client(self) -> UltradeClient:
         client = UltradeClient(
