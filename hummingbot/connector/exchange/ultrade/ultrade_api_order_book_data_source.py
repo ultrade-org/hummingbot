@@ -31,6 +31,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self.ultrade_client = self.create_ultrade_client()
         self.ultrade_events_queue: asyncio.Queue = asyncio.Queue()
         self.subscriptions_list: List[str] = []
+        self._subscription_ids_by_trading_pair: Dict[str, List[str]] = {}
 
     def create_ultrade_client(self) -> UltradeClient:
         client = UltradeClient(
@@ -105,15 +106,7 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         """
         try:
             for trading_pair in self._trading_pairs:
-                symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-                request = {
-                    'symbol': symbol,
-                    'streams': [socket_options.DEPTH, socket_options.TRADES],
-                    'options': {}
-                }
-
-                connection_id: str = str(await self.ultrade_client.subscribe(request, self.ultrade_market_streams_event_handler))
-                self.subscriptions_list.append(connection_id)
+                await self._subscribe_to_pair(trading_pair)
 
             self.logger().info("Subscribed to public order book and trade channels...")
         except asyncio.CancelledError:
@@ -124,6 +117,51 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 exc_info=True
             )
             raise
+
+    async def _subscribe_to_pair(self, trading_pair: str) -> bool:
+        symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
+        request = {
+            'symbol': symbol,
+            'streams': [socket_options.DEPTH, socket_options.TRADES],
+            'options': {}
+        }
+
+        connection_id: str = str(await self.ultrade_client.subscribe(request, self.ultrade_market_streams_event_handler))
+        self.subscriptions_list.append(connection_id)
+        self._subscription_ids_by_trading_pair.setdefault(trading_pair, []).append(connection_id)
+        return True
+
+    async def subscribe_to_trading_pair(self, trading_pair: str) -> bool:
+        try:
+            if trading_pair not in self._trading_pairs:
+                self.add_trading_pair(trading_pair)
+            return await self._subscribe_to_pair(trading_pair)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger().error(
+                f"Unexpected error occurred subscribing to {trading_pair}...",
+                exc_info=True
+            )
+            return False
+
+    async def unsubscribe_from_trading_pair(self, trading_pair: str) -> bool:
+        try:
+            connection_ids = self._subscription_ids_by_trading_pair.pop(trading_pair, [])
+            for connection_id in connection_ids:
+                await self.ultrade_client.unsubscribe(str(connection_id))
+                if connection_id in self.subscriptions_list:
+                    self.subscriptions_list.remove(connection_id)
+            self.remove_trading_pair(trading_pair)
+            return True
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger().error(
+                f"Unexpected error occurred unsubscribing from {trading_pair}...",
+                exc_info=True
+            )
+            return False
 
     async def _connected_websocket_assistant(self) -> WSAssistant:
         ws: WSAssistant = await self._api_factory.get_ws_assistant()
@@ -197,3 +235,4 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
             except Exception:
                 continue
         self.subscriptions_list.clear()
+        self._subscription_ids_by_trading_pair.clear()

@@ -63,4 +63,6 @@ dependencies:
   - yaml>=0.2.5
   - zlib>=1.2.13
   - pip:
-    - git+https://github.com/ultrade-org/ultrade-python-sdk.git
+    - py-algorand-sdk>=2.0.0
+    - solana>=0.35.1
+    - python-socketio>=5.0.0
