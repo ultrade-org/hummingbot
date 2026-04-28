@@ -109,6 +109,24 @@ class UltradeConfigMap(BaseConnectorConfigMap):
             "prompt_on_new": True,
         }
     )
+    use_bulk_order_endpoints: bool = Field(
+        default=True,
+        json_schema_extra={
+            "prompt": "Enable Ultrade bulk order endpoints? (true/false)",
+            "is_secure": False,
+            "is_connect_key": False,
+            "prompt_on_new": False,
+        }
+    )
+    bulk_order_max_batch: int = Field(
+        default=6,
+        json_schema_extra={
+            "prompt": "Maximum orders per Ultrade bulk request (default 6)",
+            "is_secure": False,
+            "is_connect_key": False,
+            "prompt_on_new": False,
+        }
+    )
     model_config = ConfigDict(title="ultrade")
 
     #@field_validator("ultrade_trading_key", mode="before")
@@ -207,6 +225,24 @@ class UltradeTestnetConfigMap(BaseConnectorConfigMap):
             "is_secure": True,
             "is_connect_key": True,
             "prompt_on_new": True,
+        }
+    )
+    use_bulk_order_endpoints: bool = Field(
+        default=True,
+        json_schema_extra={
+            "prompt": "Enable Ultrade bulk order endpoints? (true/false)",
+            "is_secure": False,
+            "is_connect_key": False,
+            "prompt_on_new": False,
+        }
+    )
+    bulk_order_max_batch: int = Field(
+        default=6,
+        json_schema_extra={
+            "prompt": "Maximum orders per Ultrade bulk request (default 6)",
+            "is_secure": False,
+            "is_connect_key": False,
+            "prompt_on_new": False,
         }
     )
     model_config = ConfigDict(title="ultrade_testnet")
