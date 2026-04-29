@@ -1,2 +1,2 @@
 eip712-structs
-git+https://github.com/ultrade-org/ultrade-python-sdk.git@perps
+git+https://github.com/ultrade-org/ultrade-python-sdk.git@b8b157a5f672d534bfcfce51519f96406f5879fe

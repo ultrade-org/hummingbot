@@ -1,11 +1,11 @@
 import re
 from decimal import Decimal
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
 import base58
 from algosdk.encoding import is_valid_address as is_valid_algorand_address
 from bip_utils import AlgorandMnemonicValidator
-from pydantic import field_validator, ConfigDict, Field, SecretStr, validator
+from pydantic import ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from hummingbot.client.config.config_data_types import BaseConnectorConfigMap, ClientFieldData
 from hummingbot.core.data_type.trade_fee import TradeFeeSchema
@@ -21,6 +21,16 @@ DEFAULT_FEES = TradeFeeSchema(
 )
 
 UUID_V4_REGEX = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+ORDER_MANAGEMENT_SINGLE = "single_order"
+ORDER_MANAGEMENT_BULK = "bulk_order"
+ORDER_MANAGEMENT_BULK_REPLACE = "bulk_replace"
+ORDER_MANAGEMENT_MODES = (
+    ORDER_MANAGEMENT_SINGLE,
+    ORDER_MANAGEMENT_BULK,
+    ORDER_MANAGEMENT_BULK_REPLACE,
+)
+OrderManagementMode = Literal["single_order", "bulk_order", "bulk_replace"]
 
 
 def is_valid_evm_address(address: str) -> bool:
@@ -76,6 +86,55 @@ def is_spot_exchange_information_valid(exchange_info: Dict[str, Any]) -> bool:
         "price_token_id",
     )
     return all(exchange_info.get(field) is not None for field in required_fields)
+
+
+def validate_order_management_mode(value: Any) -> str:
+    aliases = {
+        "single": ORDER_MANAGEMENT_SINGLE,
+        "single_order": ORDER_MANAGEMENT_SINGLE,
+        "single-order": ORDER_MANAGEMENT_SINGLE,
+        "single order": ORDER_MANAGEMENT_SINGLE,
+        "false": ORDER_MANAGEMENT_SINGLE,
+        "no": ORDER_MANAGEMENT_SINGLE,
+        "n": ORDER_MANAGEMENT_SINGLE,
+        "0": ORDER_MANAGEMENT_SINGLE,
+        "bulk": ORDER_MANAGEMENT_BULK,
+        "bulk_order": ORDER_MANAGEMENT_BULK,
+        "bulk-order": ORDER_MANAGEMENT_BULK,
+        "bulk order": ORDER_MANAGEMENT_BULK,
+        "true": ORDER_MANAGEMENT_BULK,
+        "yes": ORDER_MANAGEMENT_BULK,
+        "y": ORDER_MANAGEMENT_BULK,
+        "1": ORDER_MANAGEMENT_BULK,
+        "bulk_replace": ORDER_MANAGEMENT_BULK_REPLACE,
+        "bulk-replace": ORDER_MANAGEMENT_BULK_REPLACE,
+        "bulk replace": ORDER_MANAGEMENT_BULK_REPLACE,
+        "replace": ORDER_MANAGEMENT_BULK_REPLACE,
+    }
+    if isinstance(value, bool):
+        return ORDER_MANAGEMENT_BULK if value else ORDER_MANAGEMENT_SINGLE
+    if value is None:
+        return ORDER_MANAGEMENT_BULK
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in aliases:
+            return aliases[normalized]
+    raise ValueError(
+        f"Invalid Ultrade order management mode. Choose one of: {', '.join(ORDER_MANAGEMENT_MODES)}"
+    )
+
+
+def migrate_order_management_mode(values: Any) -> Any:
+    if not isinstance(values, dict) or "order_management_mode" in values:
+        return values
+
+    legacy_bulk_flag = values.get("use_bulk_order_endpoints")
+    if legacy_bulk_flag is None:
+        return values
+
+    migrated_values = dict(values)
+    migrated_values["order_management_mode"] = validate_order_management_mode(legacy_bulk_flag)
+    return migrated_values
 
 
 class UltradeConfigMap(BaseConnectorConfigMap):
@@ -137,16 +196,35 @@ class UltradeConfigMap(BaseConnectorConfigMap):
             "prompt_on_new": False,
         }
     )
+    order_management_mode: OrderManagementMode = Field(
+        default=ORDER_MANAGEMENT_BULK,
+        json_schema_extra={
+            "prompt": "Ultrade order management mode (single_order/bulk_order/bulk_replace)",
+            "is_secure": False,
+            "is_connect_key": True,
+            "prompt_on_new": True,
+        }
+    )
     bulk_order_max_batch: int = Field(
         default=6,
         json_schema_extra={
             "prompt": "Maximum orders per Ultrade bulk request (default 6)",
             "is_secure": False,
-            "is_connect_key": False,
+            "is_connect_key": True,
             "prompt_on_new": False,
         }
     )
     model_config = ConfigDict(title="ultrade")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_order_management_mode(cls, values: Any) -> Any:
+        return migrate_order_management_mode(values)
+
+    @field_validator("order_management_mode", mode="before")
+    @classmethod
+    def validate_order_management_mode(cls, value: Any) -> str:
+        return validate_order_management_mode(value)
 
     #@field_validator("ultrade_trading_key", mode="before")
     #@classmethod
@@ -255,16 +333,35 @@ class UltradeTestnetConfigMap(BaseConnectorConfigMap):
             "prompt_on_new": False,
         }
     )
+    order_management_mode: OrderManagementMode = Field(
+        default=ORDER_MANAGEMENT_BULK,
+        json_schema_extra={
+            "prompt": "Ultrade order management mode (single_order/bulk_order/bulk_replace)",
+            "is_secure": False,
+            "is_connect_key": True,
+            "prompt_on_new": True,
+        }
+    )
     bulk_order_max_batch: int = Field(
         default=6,
         json_schema_extra={
             "prompt": "Maximum orders per Ultrade bulk request (default 6)",
             "is_secure": False,
-            "is_connect_key": False,
+            "is_connect_key": True,
             "prompt_on_new": False,
         }
     )
     model_config = ConfigDict(title="ultrade_testnet")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_order_management_mode(cls, values: Any) -> Any:
+        return migrate_order_management_mode(values)
+
+    @field_validator("order_management_mode", mode="before")
+    @classmethod
+    def validate_order_management_mode(cls, value: Any) -> str:
+        return validate_order_management_mode(value)
 
     #@field_validator("ultrade_trading_key", mode="before")
     #@classmethod
@@ -363,16 +460,35 @@ class UltradeDev4ConfigMap(BaseConnectorConfigMap):
             "prompt_on_new": False,
         }
     )
+    order_management_mode: OrderManagementMode = Field(
+        default=ORDER_MANAGEMENT_BULK,
+        json_schema_extra={
+            "prompt": "Ultrade order management mode (single_order/bulk_order/bulk_replace)",
+            "is_secure": False,
+            "is_connect_key": True,
+            "prompt_on_new": True,
+        }
+    )
     bulk_order_max_batch: int = Field(
         default=6,
         json_schema_extra={
             "prompt": "Maximum orders per Ultrade bulk request (default 6)",
             "is_secure": False,
-            "is_connect_key": False,
+            "is_connect_key": True,
             "prompt_on_new": False,
         }
     )
     model_config = ConfigDict(title="ultrade_dev4")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_order_management_mode(cls, values: Any) -> Any:
+        return migrate_order_management_mode(values)
+
+    @field_validator("order_management_mode", mode="before")
+    @classmethod
+    def validate_order_management_mode(cls, value: Any) -> str:
+        return validate_order_management_mode(value)
 
 
 OTHER_DOMAINS_KEYS = {

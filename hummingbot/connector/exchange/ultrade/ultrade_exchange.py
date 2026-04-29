@@ -38,6 +38,7 @@ class UltradeExchange(ExchangePyBase):
                  ultrade_api_url: str,
                  ultrade_mnemonic_key: str,
                  use_bulk_order_endpoints: bool = True,
+                 order_management_mode: Optional[str] = None,
                  bulk_order_max_batch: int = 6,
                  balance_asset_limit: Optional[Dict[str, Dict[str, Decimal]]] = None,
                  rate_limits_share_pct: Decimal = Decimal("100"),
@@ -65,8 +66,17 @@ class UltradeExchange(ExchangePyBase):
         self._ultrade_pair_symbol_to_pair_id_map: Optional[Dict[str, int]] = {}
         self._ultrade_pair_lot_size_power_map: Optional[Dict[str, int]] = {}
         self._ultrade_trading_pair_lot_size_power_map: Optional[Dict[str, int]] = {}
-        self._use_bulk_operations: bool = use_bulk_order_endpoints
-        self._bulk_operations_supported: bool = use_bulk_order_endpoints
+        self._order_management_mode = self._resolve_order_management_mode(
+            order_management_mode=order_management_mode,
+            use_bulk_order_endpoints=use_bulk_order_endpoints,
+        )
+        self._use_bulk_operations: bool = self._order_management_mode in (
+            ultrade_utils.ORDER_MANAGEMENT_BULK,
+            ultrade_utils.ORDER_MANAGEMENT_BULK_REPLACE,
+        )
+        self._use_bulk_replace: bool = self._order_management_mode == ultrade_utils.ORDER_MANAGEMENT_BULK_REPLACE
+        self._bulk_operations_supported: bool = self._use_bulk_operations
+        self._bulk_replace_supported: bool = self._use_bulk_replace
         self._bulk_max_batch: int = max(1, int(bulk_order_max_batch))
         self._orders_queued_to_create: List[InFlightOrder] = []
         self._orders_queued_to_cancel: List[InFlightOrder] = []
@@ -99,8 +109,21 @@ class UltradeExchange(ExchangePyBase):
         await self._stop_orders_processing_task()
         await super().stop_network()
 
+    @staticmethod
+    def _resolve_order_management_mode(order_management_mode: Optional[str], use_bulk_order_endpoints: bool) -> str:
+        if order_management_mode is None:
+            return (
+                ultrade_utils.ORDER_MANAGEMENT_BULK
+                if use_bulk_order_endpoints
+                else ultrade_utils.ORDER_MANAGEMENT_SINGLE
+            )
+        return ultrade_utils.validate_order_management_mode(order_management_mode)
+
     def _should_use_bulk_processing(self) -> bool:
         return self._use_bulk_operations and self._bulk_operations_supported and self.is_trading_required
+
+    def _should_use_bulk_replace(self) -> bool:
+        return self._use_bulk_replace and self._bulk_replace_supported and self._should_use_bulk_processing()
 
     def _ensure_orders_processing_task(self):
         if self._should_use_bulk_processing() and self._orders_processing_task is None:
@@ -290,7 +313,7 @@ class UltradeExchange(ExchangePyBase):
         return DeductedFromReturnsTradeFee(percent=self.estimate_fee_pct(is_maker))
 
     async def _place_order_and_process_update(self, order: InFlightOrder, **kwargs) -> str:
-        if not (self._use_bulk_operations and self._bulk_operations_supported):
+        if not self._should_use_bulk_processing():
             try:
                 exchange_order_id, timestamp = await self._create_single_order(order)
             except Exception as exc:
@@ -319,7 +342,7 @@ class UltradeExchange(ExchangePyBase):
         return order.client_order_id
 
     async def _execute_order_cancel(self, order: InFlightOrder) -> Optional[str]:
-        if not (self._use_bulk_operations and self._bulk_operations_supported):
+        if not self._should_use_bulk_processing():
             success = await self._cancel_single_order(order)
             if success:
                 update_timestamp = self._time_synchronizer.time()
@@ -402,9 +425,17 @@ class UltradeExchange(ExchangePyBase):
         orders_to_create: List[InFlightOrder] = []
         orders_to_cancel: List[InFlightOrder] = []
         use_bulk_processing = self._should_use_bulk_processing()
+        use_bulk_replace = self._should_use_bulk_replace()
 
         async with self._orders_queue_lock:
-            if self._orders_queued_to_cancel:
+            if use_bulk_replace:
+                orders_to_cancel = self._orders_queued_to_cancel
+                orders_to_create = self._orders_queued_to_create
+                self._orders_queued_to_cancel = []
+                self._orders_queued_to_create = []
+                if orders_to_create:
+                    self._mark_orders_creating_locked(orders_to_create)
+            elif self._orders_queued_to_cancel:
                 orders_to_cancel = self._orders_queued_to_cancel
                 self._orders_queued_to_cancel = []
             elif self._orders_queued_to_create:
@@ -420,6 +451,9 @@ class UltradeExchange(ExchangePyBase):
                 await self._execute_single_order_creates(orders_to_create)
             return
 
+        if use_bulk_replace and orders_to_cancel and orders_to_create:
+            await self._execute_bulk_replace(orders_to_cancel, orders_to_create)
+            return
         if orders_to_cancel:
             await self._execute_bulk_cancel(orders_to_cancel)
         if orders_to_create:
@@ -701,6 +735,292 @@ class UltradeExchange(ExchangePyBase):
                             f"Failed to cancel order {order.client_order_id}: {message or 'Unknown error'}")
                         self._set_cancel_result(order.client_order_id, False)
 
+    async def _execute_bulk_replace(self, orders_to_cancel: List[InFlightOrder], orders_to_create: List[InFlightOrder]):
+        if not orders_to_cancel:
+            await self._execute_bulk_create(orders_to_create)
+            return
+        if not orders_to_create:
+            await self._execute_bulk_cancel(orders_to_cancel)
+            return
+        if not self._bulk_replace_supported:
+            await self._fallback_bulk_replace_to_bulk_orders(orders_to_cancel, orders_to_create)
+            return
+
+        try:
+            await self.trading_pair_symbol_map()
+        except Exception as exc:
+            self.logger().exception("Failed to build trading pair symbol map before bulk order replace.", exc_info=True)
+            for order in orders_to_cancel:
+                self._set_cancel_result(order.client_order_id, False)
+            for order in orders_to_create:
+                self._on_order_failure(
+                    order_id=order.client_order_id,
+                    trading_pair=order.trading_pair,
+                    amount=order.amount,
+                    trade_type=order.trade_type,
+                    order_type=order.order_type,
+                    price=order.price,
+                    exception=exc,
+                )
+                await self._finalize_create_attempt(
+                    order=order,
+                    created=False,
+                    cancel_result_if_not_created=True,
+                )
+            return
+
+        replacement_entries, remaining_cancels, remaining_creates = await self._build_bulk_replace_entries(
+            orders_to_cancel=orders_to_cancel,
+            orders_to_create=orders_to_create,
+        )
+
+        total_replacements = len(replacement_entries)
+        failed_replacement_cancels: List[InFlightOrder] = []
+        failed_replacement_creates: List[InFlightOrder] = []
+        for start in range(0, total_replacements, self._bulk_max_batch):
+            replacement_chunk = replacement_entries[start:start + self._bulk_max_batch]
+            payload_chunk = [payload for _, _, payload in replacement_chunk]
+
+            self.logger().warning(f"Ultrade bulk replace payloads: {payload_chunk}")
+            try:
+                response = await self.ultrade_client.replace_orders(payload_chunk, market_type="spot")
+            except Exception as exc:
+                if self._is_forbidden_response(str(exc)):
+                    self.logger().warning(
+                        "Ultrade bulk replace endpoint rejected the request. Falling back to bulk cancel/create.")
+                    self._bulk_replace_supported = False
+                    fallback_cancel_orders = list(failed_replacement_cancels)
+                    fallback_cancel_orders.extend(cancel_order for cancel_order, _, _ in replacement_entries[start:])
+                    fallback_cancel_orders.extend(remaining_cancels)
+                    fallback_create_orders = list(failed_replacement_creates)
+                    fallback_create_orders.extend(create_order for _, create_order, _ in replacement_entries[start:])
+                    fallback_create_orders.extend(remaining_creates)
+                    await self._fallback_bulk_replace_to_bulk_orders(fallback_cancel_orders, fallback_create_orders)
+                    return
+
+                self.logger().exception("Bulk order replace request failed.", exc_info=True)
+                for cancel_order, create_order, _ in replacement_chunk:
+                    self._set_cancel_result(cancel_order.client_order_id, False)
+                    self._on_order_failure(
+                        order_id=create_order.client_order_id,
+                        trading_pair=create_order.trading_pair,
+                        amount=create_order.amount,
+                        trade_type=create_order.trade_type,
+                        order_type=create_order.order_type,
+                        price=create_order.price,
+                        exception=exc,
+                    )
+                    await self._finalize_create_attempt(
+                        order=create_order,
+                        created=False,
+                        cancel_result_if_not_created=False,
+                    )
+                continue
+
+            self.logger().warning(f"Ultrade bulk replace raw response: {response}")
+            if self._is_forbidden_response(response):
+                self.logger().warning(
+                    "Ultrade bulk replace endpoint rejected the request. Falling back to bulk cancel/create.")
+                self._bulk_replace_supported = False
+                fallback_cancel_orders = list(failed_replacement_cancels)
+                fallback_cancel_orders.extend(cancel_order for cancel_order, _, _ in replacement_entries[start:])
+                fallback_cancel_orders.extend(remaining_cancels)
+                fallback_create_orders = list(failed_replacement_creates)
+                fallback_create_orders.extend(create_order for _, create_order, _ in replacement_entries[start:])
+                fallback_create_orders.extend(remaining_creates)
+                await self._fallback_bulk_replace_to_bulk_orders(fallback_cancel_orders, fallback_create_orders)
+                return
+
+            normalized_results = self._normalize_bulk_replace_response(response, payload_chunk)
+
+            for replace_entry, result in zip_longest(replacement_chunk, normalized_results, fillvalue=None):
+                if replace_entry is None:
+                    continue
+
+                cancel_order, create_order, _ = replace_entry
+                explicit_error_message = self._bulk_replace_error_message(result)
+                error_message = explicit_error_message
+                new_exchange_order_id = None if error_message else self._extract_replacement_new_order_id(result)
+
+                if new_exchange_order_id is None and error_message is None:
+                    error_message = f"Missing new exchange order id in bulk replace response entry: {result}"
+                    self.logger().warning(error_message)
+
+                if explicit_error_message:
+                    self.logger().warning(
+                        f"Ultrade bulk replace failed for order {cancel_order.client_order_id}; "
+                        f"falling back to bulk cancel/create: {explicit_error_message}")
+                    failed_replacement_cancels.append(cancel_order)
+                    failed_replacement_creates.append(create_order)
+                    continue
+
+                if error_message:
+                    self._set_cancel_result(cancel_order.client_order_id, False)
+                    self._on_order_failure(
+                        order_id=create_order.client_order_id,
+                        trading_pair=create_order.trading_pair,
+                        amount=create_order.amount,
+                        trade_type=create_order.trade_type,
+                        order_type=create_order.order_type,
+                        price=create_order.price,
+                        exception=RuntimeError(error_message),
+                    )
+                    await self._finalize_create_attempt(
+                        order=create_order,
+                        created=False,
+                        cancel_result_if_not_created=False,
+                    )
+                    continue
+
+                update_timestamp = self._time_synchronizer.time()
+                cancel_update = OrderUpdate(
+                    client_order_id=cancel_order.client_order_id,
+                    trading_pair=cancel_order.trading_pair,
+                    update_timestamp=update_timestamp,
+                    new_state=(OrderState.CANCELED
+                               if self.is_cancel_request_in_exchange_synchronous
+                               else OrderState.PENDING_CANCEL),
+                    misc_updates={"response": result} if isinstance(result, dict) else None,
+                )
+                self._order_tracker.process_order_update(cancel_update)
+                self._set_cancel_result(cancel_order.client_order_id, True)
+
+                create_order.update_exchange_order_id(str(new_exchange_order_id))
+                create_update = OrderUpdate(
+                    client_order_id=create_order.client_order_id,
+                    exchange_order_id=str(new_exchange_order_id),
+                    trading_pair=create_order.trading_pair,
+                    update_timestamp=update_timestamp,
+                    new_state=OrderState.OPEN,
+                    misc_updates={"response": result} if isinstance(result, dict) else None,
+                )
+                self._order_tracker.process_order_update(create_update)
+                await self._finalize_create_attempt(order=create_order, created=True)
+
+        remaining_cancels.extend(failed_replacement_cancels)
+        remaining_creates.extend(failed_replacement_creates)
+        await self._fallback_bulk_replace_to_bulk_orders(remaining_cancels, remaining_creates)
+
+    async def _build_bulk_replace_entries(
+            self,
+            orders_to_cancel: List[InFlightOrder],
+            orders_to_create: List[InFlightOrder]) -> Tuple[
+                List[Tuple[InFlightOrder, InFlightOrder, Dict[str, Any]]],
+                List[InFlightOrder],
+                List[InFlightOrder],
+            ]:
+        cancel_groups: Dict[Tuple[str, TradeType], List[Tuple[InFlightOrder, int]]] = defaultdict(list)
+        create_groups: Dict[Tuple[str, TradeType], List[Tuple[InFlightOrder, Dict[str, Any]]]] = defaultdict(list)
+
+        for order in orders_to_cancel:
+            exchange_order_id = await self._exchange_order_id_for_bulk_replace(order)
+            if exchange_order_id is not None:
+                cancel_groups[(order.trading_pair, order.trade_type)].append((order, exchange_order_id))
+
+        for order in orders_to_create:
+            try:
+                payload = await self._build_bulk_create_payload(order)
+            except Exception as exc:
+                self._on_order_failure(
+                    order_id=order.client_order_id,
+                    trading_pair=order.trading_pair,
+                    amount=order.amount,
+                    trade_type=order.trade_type,
+                    order_type=order.order_type,
+                    price=order.price,
+                    exception=exc,
+                )
+                await self._finalize_create_attempt(
+                    order=order,
+                    created=False,
+                    cancel_result_if_not_created=True,
+                )
+                continue
+            create_groups[(order.trading_pair, order.trade_type)].append((order, payload))
+
+        replacement_entries: List[Tuple[InFlightOrder, InFlightOrder, Dict[str, Any]]] = []
+        remaining_cancels: List[InFlightOrder] = []
+        remaining_creates: List[InFlightOrder] = []
+
+        for key in set(cancel_groups.keys()).union(create_groups.keys()):
+            cancel_entries = cancel_groups.get(key, [])
+            create_entries = create_groups.get(key, [])
+            reverse_sort = key[1] is TradeType.BUY
+            cancel_entries.sort(key=lambda entry: self._sanitize_price(entry[0].price), reverse=reverse_sort)
+            create_entries.sort(key=lambda entry: self._sanitize_price(entry[0].price), reverse=reverse_sort)
+
+            replacement_count = min(len(cancel_entries), len(create_entries))
+            for index in range(replacement_count):
+                cancel_order, exchange_order_id = cancel_entries[index]
+                create_order, payload = create_entries[index]
+                replacement_payload = dict(payload)
+                replacement_payload["old_order_id"] = exchange_order_id
+                replacement_entries.append((cancel_order, create_order, replacement_payload))
+
+            remaining_cancels.extend(cancel_order for cancel_order, _ in cancel_entries[replacement_count:])
+            remaining_creates.extend(create_order for create_order, _ in create_entries[replacement_count:])
+
+        return replacement_entries, remaining_cancels, remaining_creates
+
+    async def _exchange_order_id_for_bulk_replace(self, order: InFlightOrder) -> Optional[int]:
+        exchange_order_id = order.exchange_order_id
+        if exchange_order_id is None and order.current_state == OrderState.FAILED:
+            self.logger().warning(
+                f"Skipping replacement cancel for order {order.client_order_id}; order failed without exchange id.")
+            await self._order_tracker.process_order_not_found(order.client_order_id)
+            self._set_cancel_result(order.client_order_id, False)
+            return None
+        if exchange_order_id is None:
+            async with self._orders_queue_lock:
+                create_in_flight = order.client_order_id in self._orders_creating
+                if create_in_flight:
+                    self._orders_cancel_after_create[order.client_order_id] = order
+            if create_in_flight:
+                self.logger().warning(
+                    f"Deferring replacement for order {order.client_order_id}; create response is still pending.")
+                return None
+            try:
+                exchange_order_id = await order.get_exchange_order_id()
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError:
+                if order.current_state == OrderState.PENDING_CREATE:
+                    self.logger().warning(
+                        f"Timed out waiting for exchange order id for order {order.client_order_id}; "
+                        "leaving the order tracked because its create request has not been resolved.")
+                    self._set_cancel_result(order.client_order_id, False)
+                    return None
+                self.logger().warning(
+                    f"Timed out waiting for exchange order id for order {order.client_order_id}; skipping replace.")
+                await self._order_tracker.process_order_not_found(order.client_order_id)
+                self._set_cancel_result(order.client_order_id, False)
+                return None
+
+        if exchange_order_id is None:
+            self.logger().warning(
+                f"Skipping replacement for order {order.client_order_id}; exchange order id is not available.")
+            await self._order_tracker.process_order_not_found(order.client_order_id)
+            self._set_cancel_result(order.client_order_id, False)
+            return None
+
+        try:
+            return int(exchange_order_id)
+        except (TypeError, ValueError):
+            self.logger().warning(
+                f"Invalid exchange order id for order {order.client_order_id}: {exchange_order_id}.")
+            await self._order_tracker.process_order_not_found(order.client_order_id)
+            self._set_cancel_result(order.client_order_id, False)
+            return None
+
+    async def _fallback_bulk_replace_to_bulk_orders(
+            self,
+            orders_to_cancel: List[InFlightOrder],
+            orders_to_create: List[InFlightOrder]):
+        if orders_to_cancel:
+            await self._execute_bulk_cancel(orders_to_cancel)
+        if orders_to_create:
+            await self._execute_bulk_create(orders_to_create)
+
     async def _build_bulk_create_payload(self, order: InFlightOrder) -> Dict[str, Any]:
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=order.trading_pair)
         amount_int = self.to_spot_size(order.amount, trading_pair=order.trading_pair, symbol=symbol)
@@ -735,7 +1055,15 @@ class UltradeExchange(ExchangePyBase):
             results = list(response)
         elif isinstance(response, dict):
             aggregated: List[Any] = []
-            for key in ("successfulOrders", "failedOrders", "results", "data", "orders", "arrayData"):
+            for key in (
+                    "successfulOrders",
+                    "failedOrders",
+                    "successfulReplacements",
+                    "failedReplacements",
+                    "results",
+                    "data",
+                    "orders",
+                    "arrayData"):
                 value = response.get(key)
                 if isinstance(value, list):
                     aggregated.extend(value)
@@ -796,6 +1124,44 @@ class UltradeExchange(ExchangePyBase):
 
         return cls._normalize_bulk_response(ordered_results, expected_len)
 
+    @classmethod
+    def _normalize_bulk_replace_response(cls, response: Any, payloads: List[Dict[str, Any]]) -> List[Any]:
+        expected_len = len(payloads)
+        if not isinstance(response, dict):
+            return cls._normalize_bulk_response(response, expected_len)
+
+        entries: List[Any] = []
+        for key in ("successfulReplacements", "failedReplacements", "successfulOrders", "failedOrders"):
+            value = response.get(key)
+            if isinstance(value, list):
+                entries.extend(value)
+
+        if not entries:
+            return cls._normalize_bulk_response(response, expected_len)
+
+        ordered_results: List[Any] = []
+        used_entry_indexes = set()
+        for payload in payloads:
+            match_index = next(
+                (
+                    index for index, entry in enumerate(entries)
+                    if index not in used_entry_indexes and cls._bulk_replace_entry_matches_payload(entry, payload)
+                ),
+                None,
+            )
+            if match_index is None:
+                ordered_results.append(None)
+            else:
+                used_entry_indexes.add(match_index)
+                ordered_results.append(entries[match_index])
+
+        unused_entries = [entry for index, entry in enumerate(entries) if index not in used_entry_indexes]
+        for index, result in enumerate(ordered_results):
+            if result is None and unused_entries:
+                ordered_results[index] = unused_entries.pop(0)
+
+        return cls._normalize_bulk_response(ordered_results, expected_len)
+
     @staticmethod
     def _bulk_create_entry_matches_payload(entry: Any, payload: Dict[str, Any]) -> bool:
         if not isinstance(entry, dict):
@@ -823,6 +1189,17 @@ class UltradeExchange(ExchangePyBase):
 
         return matched_fields > 0
 
+    @classmethod
+    def _bulk_replace_entry_matches_payload(cls, entry: Any, payload: Dict[str, Any]) -> bool:
+        if not isinstance(entry, dict):
+            return False
+
+        old_order_id = cls._extract_replacement_old_order_id(entry)
+        if old_order_id is not None:
+            return str(old_order_id) == str(payload["old_order_id"])
+
+        return cls._bulk_create_entry_matches_payload(entry, payload)
+
     @staticmethod
     def _bulk_create_error_message(entry: Any) -> Optional[str]:
         if isinstance(entry, dict):
@@ -832,6 +1209,19 @@ class UltradeExchange(ExchangePyBase):
                     return str(value)
             if entry.get("success") is False:
                 return "Bulk order create failed"
+        elif isinstance(entry, str) and entry.lower().startswith("error"):
+            return entry
+        return None
+
+    @staticmethod
+    def _bulk_replace_error_message(entry: Any) -> Optional[str]:
+        if isinstance(entry, dict):
+            for key in ("error", "reason", "failure_reason", "message"):
+                value = entry.get(key)
+                if value:
+                    return str(value)
+            if entry.get("success") is False:
+                return "Bulk order replace failed"
         elif isinstance(entry, str) and entry.lower().startswith("error"):
             return entry
         return None
@@ -856,6 +1246,41 @@ class UltradeExchange(ExchangePyBase):
                     return candidate
         elif isinstance(entry, (int, str)):
             return str(entry)
+        return None
+
+    @classmethod
+    def _extract_replacement_new_order_id(cls, entry: Any) -> Optional[str]:
+        if isinstance(entry, dict):
+            for key in ("newOrderId", "new_order_id", "newOrderID", "new_orderID"):
+                value = entry.get(key)
+                if value is not None:
+                    return str(value)
+            for key in ("newOrder", "order", "result", "data", "orderResult"):
+                value = entry.get(key)
+                if isinstance(value, (dict, list)):
+                    candidate = cls._extract_replacement_new_order_id(value)
+                    if candidate is not None:
+                        return candidate
+            fallback_order_id = cls._extract_order_id(entry)
+            old_order_id = cls._extract_replacement_old_order_id(entry)
+            if fallback_order_id is not None and fallback_order_id != old_order_id:
+                return fallback_order_id
+        elif isinstance(entry, list):
+            for value in entry:
+                candidate = cls._extract_replacement_new_order_id(value)
+                if candidate is not None:
+                    return candidate
+        elif isinstance(entry, (int, str)):
+            return str(entry)
+        return None
+
+    @staticmethod
+    def _extract_replacement_old_order_id(entry: Any) -> Optional[str]:
+        if isinstance(entry, dict):
+            for key in ("oldOrderId", "old_order_id", "oldOrderID", "old_orderID"):
+                value = entry.get(key)
+                if value is not None:
+                    return str(value)
         return None
 
     @classmethod
@@ -974,7 +1399,13 @@ class UltradeExchange(ExchangePyBase):
             status = str(response.get("status", "")).lower()
             return "forbidden" in message or status_code == "403" or status == "403"
         if isinstance(response, str):
-            return response.lower() == "forbidden"
+            lower_response = response.lower()
+            return (
+                "forbidden" in lower_response
+                or "statuscode': 403" in lower_response
+                or '"statuscode": 403' in lower_response
+                or lower_response == "403"
+            )
         return False
 
     async def _create_single_order(self, order: InFlightOrder) -> Tuple[str, float]:
