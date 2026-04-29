@@ -6,7 +6,9 @@
 - This branch has working connector-level support for Ultrade spot bulk order creation and cancellation.
 - The current public Ultrade SDK exposes single order create/cancel and bulk spot create/cancel, but does not expose bulk replace.
 - Bulk replace exists in the upcoming perps-platform SDK line, which also includes spot trading changes. That means replace work should be developed after the connector has been migrated to the newer SDK/API surface.
-- Live testnet spot testing used the secure API path with higher rate limits. Perps are not available on live testnet yet, so the perps SDK migration and replace work should target the Ultrade dev server.
+- Live testnet spot testing used the secure API path with higher rate limits. Perps are not available on live testnet yet, so the perps SDK migration and replace work should target the Ultrade dev4 server at `https://api.dev4.ultradedev.net/`.
+- The perps SDK line is currently consumed from `git+https://github.com/ultrade-org/ultrade-python-sdk.git@perps`.
+- Dev4 currently exposes mixed spot and perp market metadata from `get_pair_list()`. The spot connector should ignore `type: "perp"` markets until a dedicated perps connector path is implemented.
 
 ### Near-Term Goals
 1. Preserve the known-working spot order-management behavior:
@@ -35,7 +37,8 @@
 3. **Perps SDK migration**
    - Replace the current SDK dependency with the perps SDK version.
    - Audit spot method names, payloads, response shapes, signing behavior, auth, and websocket events.
-   - Point connector configuration at the Ultrade dev server for perps-era testing.
+   - Point connector configuration at the Ultrade dev4 server for perps-era testing.
+   - Use `ultrade_dev4` for dev4 spot metadata/order-management checks; reserve live `ultrade_testnet` for the known-working main-SDK spot branch.
 4. **Order-management mode selector**
    - Replace the current boolean bulk flag with an explicit connector-level mode.
    - Keep compatibility with existing configs that still use `use_bulk_order_endpoints`.
@@ -130,9 +133,9 @@
    - Monitor production metrics (order uptime, spread coverage, replace latency).
 
 ### Open Questions & Next Steps
-- Final replace payload format & signing flow from the perps SDK/API.
-- Exact spot API compatibility differences between the current main SDK and the perps SDK line.
-- Dev-server endpoint, auth setup, and environment configuration for perps-era connector testing.
+- Final replace response semantics and partial-failure behavior from the perps SDK/API.
+- Exact spot API compatibility differences between live testnet and dev4 as the perps API evolves.
+- Dev4 auth setup for private order/balance smoke tests. Existing live testnet trading-key credentials returned `401 Unauthorized` against dev4 during this migration pass.
 - Handling partial replacements (e.g. when price changes but size stays constant).
 - Whether to expose replace capability to other strategies once stable.
 

@@ -80,7 +80,7 @@ class UltradeExchange(ExchangePyBase):
 
     def create_ultrade_client(self) -> UltradeClient:
         client = UltradeClient(
-            network=self._domain,
+            network=self.ultrade_sdk_network,
             company_id=self.ultrade_company_id,
             api_url=self.ultrade_api_url
         )
@@ -191,6 +191,10 @@ class UltradeExchange(ExchangePyBase):
             return "ultrade"
         else:
             return f"ultrade_{self._domain}"
+
+    @property
+    def ultrade_sdk_network(self) -> str:
+        return "testnet" if self._domain == "dev4" else self._domain
 
     @property
     def rate_limits_rules(self):
@@ -1063,7 +1067,7 @@ class UltradeExchange(ExchangePyBase):
         """
         trading_pair_rules = exchange_info_dict.get("symbols", [])
         retval = []
-        for rule in filter(ultrade_utils.is_exchange_information_valid, trading_pair_rules):
+        for rule in filter(ultrade_utils.is_spot_exchange_information_valid, trading_pair_rules):
             try:
                 trading_pair = await self.trading_pair_associated_to_exchange_symbol(symbol=rule.get("pair_key"))
 
@@ -1272,7 +1276,7 @@ class UltradeExchange(ExchangePyBase):
         token_id_asset_mapping = {}
         conversion_rules = {}
         pair_symbol_to_pair_id_map = {}
-        for symbol_data in filter(ultrade_utils.is_exchange_information_valid, exchange_info["symbols"]):
+        for symbol_data in filter(ultrade_utils.is_spot_exchange_information_valid, exchange_info["symbols"]):
             trading_pair_mapping[symbol_data["pair_key"]] = combine_to_hb_trading_pair(base=symbol_data["base_currency"].upper(),
                                                                                        quote=symbol_data["price_currency"].upper())
             token_address_asset_mapping[str(symbol_data["base_id"]).upper()] = symbol_data["base_currency"].upper()

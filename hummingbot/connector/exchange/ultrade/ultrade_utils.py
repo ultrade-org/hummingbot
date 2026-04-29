@@ -12,6 +12,7 @@ from hummingbot.core.data_type.trade_fee import TradeFeeSchema
 
 CENTRALIZED = True
 EXAMPLE_PAIR = "SOL-USDC"
+DEV4_API_URL = "https://api.dev4.ultradedev.net/"
 
 DEFAULT_FEES = TradeFeeSchema(
     maker_percent_fee_decimal=Decimal("0.001"),
@@ -57,6 +58,24 @@ def is_exchange_information_valid(exchange_info: Dict[str, Any]) -> bool:
     :return: True if the trading pair is active, False otherwise
     """
     return exchange_info.get("is_active", False)
+
+
+def is_spot_exchange_information_valid(exchange_info: Dict[str, Any]) -> bool:
+    if not is_exchange_information_valid(exchange_info):
+        return False
+    if exchange_info.get("type", "spot") != "spot":
+        return False
+    required_fields = (
+        "base_currency",
+        "price_currency",
+        "base_decimal",
+        "price_decimal",
+        "base_id",
+        "price_id",
+        "base_token_id",
+        "price_token_id",
+    )
+    return all(exchange_info.get(field) is not None for field in required_fields)
 
 
 class UltradeConfigMap(BaseConnectorConfigMap):
@@ -172,10 +191,10 @@ class UltradeConfigMap(BaseConnectorConfigMap):
 
 KEYS = UltradeConfigMap.construct()
 
-OTHER_DOMAINS = ["ultrade_testnet"]
-OTHER_DOMAINS_PARAMETER = {"ultrade_testnet": "testnet"}
-OTHER_DOMAINS_EXAMPLE_PAIR = {"ultrade_testnet": "SOL-USDC"}
-OTHER_DOMAINS_DEFAULT_FEES = {"ultrade_testnet": DEFAULT_FEES}
+OTHER_DOMAINS = ["ultrade_testnet", "ultrade_dev4"]
+OTHER_DOMAINS_PARAMETER = {"ultrade_testnet": "testnet", "ultrade_dev4": "dev4"}
+OTHER_DOMAINS_EXAMPLE_PAIR = {"ultrade_testnet": "SOL-USDC", "ultrade_dev4": "AMAX-USDC"}
+OTHER_DOMAINS_DEFAULT_FEES = {"ultrade_testnet": DEFAULT_FEES, "ultrade_dev4": DEFAULT_FEES}
 
 
 class UltradeTestnetConfigMap(BaseConnectorConfigMap):
@@ -288,4 +307,75 @@ class UltradeTestnetConfigMap(BaseConnectorConfigMap):
         return v
 
 
-OTHER_DOMAINS_KEYS = {"ultrade_testnet": UltradeTestnetConfigMap.construct()}
+class UltradeDev4ConfigMap(BaseConnectorConfigMap):
+    connector: str = "ultrade_dev4"
+    ultrade_trading_key: SecretStr = Field(
+        default=...,
+        json_schema_extra={
+            "prompt": "Enter your Ultrade Dev4 trading key",
+            "is_secure": True,
+            "is_connect_key": True,
+            "prompt_on_new": True,
+        }
+    )
+    ultrade_wallet_address: SecretStr = Field(
+        default=...,
+        json_schema_extra={
+            "prompt": "Enter your Ultrade Dev4 login wallet address",
+            "is_secure": True,
+            "is_connect_key": True,
+            "prompt_on_new": True,
+        }
+    )
+    ultrade_mnemonic_key: SecretStr = Field(
+        default=...,
+        json_schema_extra={
+            "prompt": "Enter your Ultrade Dev4 Algorand mnemonic or EVM private key",
+            "is_secure": True,
+            "is_connect_key": True,
+            "prompt_on_new": True,
+        }
+    )
+    ultrade_company_id: SecretStr = Field(
+        default="1",
+        json_schema_extra={
+            "prompt": "Enter your Ultrade Dev4 CompanyID",
+            "is_secure": True,
+            "is_connect_key": True,
+            "prompt_on_new": True,
+        }
+    )
+    ultrade_api_url: SecretStr = Field(
+        default=DEV4_API_URL,
+        json_schema_extra={
+            "prompt": "Enter your Ultrade Dev4 connecting API URL",
+            "is_secure": True,
+            "is_connect_key": True,
+            "prompt_on_new": True,
+        }
+    )
+    use_bulk_order_endpoints: bool = Field(
+        default=True,
+        json_schema_extra={
+            "prompt": "Enable Ultrade bulk order endpoints? (true/false)",
+            "is_secure": False,
+            "is_connect_key": False,
+            "prompt_on_new": False,
+        }
+    )
+    bulk_order_max_batch: int = Field(
+        default=6,
+        json_schema_extra={
+            "prompt": "Maximum orders per Ultrade bulk request (default 6)",
+            "is_secure": False,
+            "is_connect_key": False,
+            "prompt_on_new": False,
+        }
+    )
+    model_config = ConfigDict(title="ultrade_dev4")
+
+
+OTHER_DOMAINS_KEYS = {
+    "ultrade_testnet": UltradeTestnetConfigMap.construct(),
+    "ultrade_dev4": UltradeDev4ConfigMap.construct(),
+}

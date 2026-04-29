@@ -110,7 +110,7 @@ Market Data -->| Telemetry Engine |-----> | Metrics Store /   |---+
 - Re-verify spot single order and bulk create/cancel behavior after the upgrade.
 - Move the connector from the current main Ultrade SDK to the upcoming perps SDK line.
 - Adapt spot trading support to any SDK/API changes introduced by the perps platform.
-- Use the Ultrade dev server for perps SDK and bulk-replace testing until those APIs are available on live testnet.
+- Use the Ultrade dev4 server (`https://api.dev4.ultradedev.net/`) for perps SDK and bulk-replace testing until those APIs are available on live testnet.
 - Add an explicit connector order-management mode selector: `single`, `bulk`, or `bulk_replace`.
 
 ### Phase 0 – Foundations
@@ -153,9 +153,9 @@ Market Data -->| Telemetry Engine |-----> | Metrics Store /   |---+
 - Optional KYC/AML checks depending on jurisdictional requirements.
 
 ## 9. Open Questions
-- Final Ultrade bulk replace API schema and signing workflow in the perps SDK.
-- Spot compatibility differences between the current SDK and the upcoming perps SDK.
-- Dev-server operational details for connector smoke tests and perps-era regression tests.
+- Final Ultrade bulk replace response semantics and signing workflow in the perps SDK.
+- Spot compatibility differences between the current SDK and the perps SDK/dev4 API.
+- Dev4 private auth details for connector smoke tests and perps-era regression tests.
 - How to best estimate “liquidity value” or rewards for RL training (PnL vs synthetic metrics).
 - Whether to centralise agent logic (cloud service) or keep per-node to minimise latency and security risk.
 - Approach for multi-agent coordination if several tokens share capital.

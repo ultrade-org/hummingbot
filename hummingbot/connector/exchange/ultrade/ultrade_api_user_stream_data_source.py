@@ -37,7 +37,7 @@ class UltradeAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     def create_ultrade_client(self) -> UltradeClient:
         client = UltradeClient(
-            network=self._domain,
+            network=self._connector.ultrade_sdk_network,
             company_id=self._connector.ultrade_company_id,
             api_url=self._connector.ultrade_api_url
         )
