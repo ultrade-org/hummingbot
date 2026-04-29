@@ -217,11 +217,12 @@ class UltradeAPIOrderBookDataSource(OrderBookTrackerDataSource):
         return channel
 
     def _process_ultrade_trade_message(self, trade_data: Dict[str, Any], trading_pair: str) -> Dict[str, Any]:
-        base, quote = trading_pair.split("-")
         trade = {
             "trade_id": str(trade_data[2]),
-            "price": float(self._connector.from_fixed_point("18DEC", trade_data[3])),
-            "amount": float(self._connector.from_fixed_point(base, trade_data[4])),
+            "price": float(self._connector.from_spot_price(
+                trade_data[3], trading_pair=trading_pair)),
+            "amount": float(self._connector.from_spot_size(
+                trade_data[4], trading_pair=trading_pair)),
             "trade_type": "SELL" if trade_data[7] else "BUY",
             "timestamp": int(trade_data[6]),
         }

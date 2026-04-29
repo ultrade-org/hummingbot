@@ -1,6 +1,6 @@
 import asyncio
 from collections import defaultdict
-from decimal import Decimal
+from decimal import Decimal, ROUND_FLOOR
 from itertools import zip_longest
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -26,8 +26,6 @@ from hummingbot.core.data_type.user_stream_tracker_data_source import UserStream
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 from ultrade import Client as UltradeClient
-
-PRICE_TOKEN = "18DEC"   # this is the default token for price conversion rule
 
 
 class UltradeExchange(ExchangePyBase):
@@ -65,6 +63,8 @@ class UltradeExchange(ExchangePyBase):
         self._ultrade_token_address_asset_map: Optional[Dict[str, str]] = {}
         self._ultrade_token_id_asset_map: Optional[Dict[int, str]] = {}
         self._ultrade_pair_symbol_to_pair_id_map: Optional[Dict[str, int]] = {}
+        self._ultrade_pair_lot_size_power_map: Optional[Dict[str, int]] = {}
+        self._ultrade_trading_pair_lot_size_power_map: Optional[Dict[str, int]] = {}
         self._use_bulk_operations: bool = use_bulk_order_endpoints
         self._bulk_operations_supported: bool = use_bulk_order_endpoints
         self._bulk_max_batch: int = max(1, int(bulk_order_max_batch))
@@ -702,10 +702,10 @@ class UltradeExchange(ExchangePyBase):
                         self._set_cancel_result(order.client_order_id, False)
 
     async def _build_bulk_create_payload(self, order: InFlightOrder) -> Dict[str, Any]:
-        base, _ = order.trading_pair.split("-")
-        amount_int = self.to_fixed_point(base, order.amount)
+        symbol = await self.exchange_symbol_associated_to_pair(trading_pair=order.trading_pair)
+        amount_int = self.to_spot_size(order.amount, trading_pair=order.trading_pair, symbol=symbol)
         price_value = self._sanitize_price(order.price)
-        price_int = self.to_fixed_point(PRICE_TOKEN, price_value)
+        price_int = self.to_spot_price(price_value, trading_pair=order.trading_pair, symbol=symbol)
 
         if order.order_type == OrderType.LIMIT:
             type_str = "L"
@@ -717,7 +717,6 @@ class UltradeExchange(ExchangePyBase):
             raise ValueError(f"Unsupported order type {order.order_type}")
 
         side_str = "B" if order.trade_type is TradeType.BUY else "S"
-        symbol = await self.exchange_symbol_associated_to_pair(trading_pair=order.trading_pair)
         pair_id = self._ultrade_pair_symbol_to_pair_id_map[symbol]
 
         return {
@@ -980,10 +979,10 @@ class UltradeExchange(ExchangePyBase):
 
     async def _create_single_order(self, order: InFlightOrder) -> Tuple[str, float]:
         await self.trading_pair_symbol_map()
-        base, _ = order.trading_pair.split("-")
-        amount_int = self.to_fixed_point(base, order.amount)
+        symbol = await self.exchange_symbol_associated_to_pair(trading_pair=order.trading_pair)
+        amount_int = self.to_spot_size(order.amount, trading_pair=order.trading_pair, symbol=symbol)
         price_value = self._sanitize_price(order.price)
-        price_int = self.to_fixed_point(PRICE_TOKEN, price_value)
+        price_int = self.to_spot_price(price_value, trading_pair=order.trading_pair, symbol=symbol)
 
         if order.order_type == OrderType.LIMIT:
             type_str = "L"
@@ -995,7 +994,6 @@ class UltradeExchange(ExchangePyBase):
             raise ValueError(f"Unsupported order type {order.order_type}")
 
         side_str = "B" if order.trade_type is TradeType.BUY else "S"
-        symbol = await self.exchange_symbol_associated_to_pair(trading_pair=order.trading_pair)
         pair_id = self._ultrade_pair_symbol_to_pair_id_map[symbol]
 
         order_result = await self.ultrade_client.create_order(
@@ -1071,11 +1069,12 @@ class UltradeExchange(ExchangePyBase):
             try:
                 trading_pair = await self.trading_pair_associated_to_exchange_symbol(symbol=rule.get("pair_key"))
 
-                base_decimal = int(rule.get("base_decimal"))
-                min_order_size = Decimal(rule.get("min_order_size")) / Decimal(10 ** base_decimal)
-                min_base_amount_increment = Decimal(rule.get("min_size_increment")) / Decimal(10 ** base_decimal)
-                # TODO: get clarification on this. for now, 18 is the default
-                min_price_increment = Decimal(rule.get("min_price_increment")) / Decimal(10 ** 18)
+                lot_size_power = int(rule.get("lotSizePower") or 0)
+                min_order_size = self.from_spot_size(rule.get("min_order_size"), lot_size_power=lot_size_power)
+                min_base_amount_increment = self.from_spot_size(
+                    rule.get("min_size_increment"), lot_size_power=lot_size_power)
+                min_price_increment = self.from_spot_price(
+                    rule.get("min_price_increment"), lot_size_power=lot_size_power)
 
                 retval.append(
                     TradingRule(trading_pair,
@@ -1150,9 +1149,8 @@ class UltradeExchange(ExchangePyBase):
                         percent_token=fee_token,
                         flat_fees=[TokenAmount(amount=fee_amount, token=fee_token)]
                     )
-                    base, quote = tracked_order.trading_pair.split("-")
-                    fill_price = self.from_fixed_point(PRICE_TOKEN, int(trade_data[7]))
-                    fill_base_amount = self.from_fixed_point(base, int(trade_data[8]))
+                    fill_price = self.from_spot_price(trade_data[7], trading_pair=tracked_order.trading_pair)
+                    fill_base_amount = self.from_spot_size(trade_data[8], trading_pair=tracked_order.trading_pair)
                     fill_quote_amount = fill_base_amount * fill_price
                     trade_update = TradeUpdate(
                         trade_id=str(trade_data[6]),
@@ -1205,8 +1203,8 @@ class UltradeExchange(ExchangePyBase):
                     percent_token=fee_token,
                     flat_fees=[TokenAmount(amount=fee_amount, token=fee_token)]
                 )
-                fill_base_amount = self.from_fixed_point(base, int(trade["amount"]))
-                fill_price = self.from_fixed_point(PRICE_TOKEN, int(trade["price"]))
+                fill_base_amount = self.from_spot_size(trade["amount"], trading_pair=trading_pair)
+                fill_price = self.from_spot_price(trade["price"], trading_pair=trading_pair)
                 fill_quote_amount = fill_base_amount * fill_price
                 trade_update = TradeUpdate(
                     trade_id=str(trade["tradeId"]),
@@ -1276,9 +1274,12 @@ class UltradeExchange(ExchangePyBase):
         token_id_asset_mapping = {}
         conversion_rules = {}
         pair_symbol_to_pair_id_map = {}
+        pair_lot_size_power_map = {}
+        trading_pair_lot_size_power_map = {}
         for symbol_data in filter(ultrade_utils.is_spot_exchange_information_valid, exchange_info["symbols"]):
-            trading_pair_mapping[symbol_data["pair_key"]] = combine_to_hb_trading_pair(base=symbol_data["base_currency"].upper(),
-                                                                                       quote=symbol_data["price_currency"].upper())
+            trading_pair = combine_to_hb_trading_pair(base=symbol_data["base_currency"].upper(),
+                                                      quote=symbol_data["price_currency"].upper())
+            trading_pair_mapping[symbol_data["pair_key"]] = trading_pair
             token_address_asset_mapping[str(symbol_data["base_id"]).upper()] = symbol_data["base_currency"].upper()
             token_address_asset_mapping[str(symbol_data["price_id"]).upper()] = symbol_data["price_currency"].upper()
             token_id_asset_mapping[int(symbol_data["base_token_id"])] = symbol_data["base_currency"].upper()
@@ -1286,11 +1287,16 @@ class UltradeExchange(ExchangePyBase):
             conversion_rules[str(symbol_data["base_currency"]).upper()] = int(symbol_data["base_decimal"])
             conversion_rules[str(symbol_data["price_currency"]).upper()] = int(symbol_data["price_decimal"])
             pair_symbol_to_pair_id_map[symbol_data["pair_key"]] = int(symbol_data["id"])
+            lot_size_power = int(symbol_data.get("lotSizePower") or 0)
+            pair_lot_size_power_map[symbol_data["pair_key"]] = lot_size_power
+            trading_pair_lot_size_power_map[trading_pair] = lot_size_power
         self._set_trading_pair_symbol_map(trading_pair_mapping)
         self._ultrade_token_address_asset_map.update(token_address_asset_mapping)
         self._ultrade_token_id_asset_map.update(token_id_asset_mapping)
         self._ultrade_conversion_rules.update(conversion_rules)
         self._ultrade_pair_symbol_to_pair_id_map.update(pair_symbol_to_pair_id_map)
+        self._ultrade_pair_lot_size_power_map.update(pair_lot_size_power_map)
+        self._ultrade_trading_pair_lot_size_power_map.update(trading_pair_lot_size_power_map)
 
     async def _get_last_traded_price(self, trading_pair: str) -> float:
         symbol = await self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
@@ -1304,7 +1310,7 @@ class UltradeExchange(ExchangePyBase):
             return 0.0
 
         try:
-            scaled_price = self.from_fixed_point(PRICE_TOKEN, int(Decimal(str(raw_last_price))))
+            scaled_price = self.from_spot_price(raw_last_price, symbol=symbol)
         except (KeyError, ValueError, ArithmeticError):
             # Fallback to plain float if conversion info is missing or malformed
             return float(raw_last_price)
@@ -1324,6 +1330,78 @@ class UltradeExchange(ExchangePyBase):
         value = int(Decimal(str(value)) * Decimal(str(10 ** self._ultrade_conversion_rules[asset])))
 
         return value
+
+    def _spot_lot_size_power(
+        self,
+        trading_pair: Optional[str] = None,
+        symbol: Optional[str] = None,
+        lot_size_power: Optional[int] = None,
+    ) -> int:
+        if lot_size_power is not None:
+            return int(lot_size_power)
+        if symbol is not None:
+            return int(self._ultrade_pair_lot_size_power_map.get(symbol, 0))
+        if trading_pair is not None:
+            return int(self._ultrade_trading_pair_lot_size_power_map.get(trading_pair, 0))
+        return 0
+
+    def to_spot_size(
+        self,
+        value: Decimal,
+        trading_pair: Optional[str] = None,
+        symbol: Optional[str] = None,
+        lot_size_power: Optional[int] = None,
+    ) -> int:
+        lot_power = self._spot_lot_size_power(
+            trading_pair=trading_pair,
+            symbol=symbol,
+            lot_size_power=lot_size_power,
+        )
+        scaled = Decimal(str(value)) * (Decimal(10) ** (8 - lot_power))
+        return int(scaled.to_integral_value(rounding=ROUND_FLOOR))
+
+    def from_spot_size(
+        self,
+        value: Any,
+        trading_pair: Optional[str] = None,
+        symbol: Optional[str] = None,
+        lot_size_power: Optional[int] = None,
+    ) -> Decimal:
+        lot_power = self._spot_lot_size_power(
+            trading_pair=trading_pair,
+            symbol=symbol,
+            lot_size_power=lot_size_power,
+        )
+        return Decimal(str(value)) / (Decimal(10) ** (8 - lot_power))
+
+    def to_spot_price(
+        self,
+        value: Decimal,
+        trading_pair: Optional[str] = None,
+        symbol: Optional[str] = None,
+        lot_size_power: Optional[int] = None,
+    ) -> int:
+        lot_power = self._spot_lot_size_power(
+            trading_pair=trading_pair,
+            symbol=symbol,
+            lot_size_power=lot_size_power,
+        )
+        scaled = Decimal(str(value)) * (Decimal(10) ** (10 + lot_power))
+        return int(scaled.to_integral_value(rounding=ROUND_FLOOR))
+
+    def from_spot_price(
+        self,
+        value: Any,
+        trading_pair: Optional[str] = None,
+        symbol: Optional[str] = None,
+        lot_size_power: Optional[int] = None,
+    ) -> Decimal:
+        lot_power = self._spot_lot_size_power(
+            trading_pair=trading_pair,
+            symbol=symbol,
+            lot_size_power=lot_size_power,
+        )
+        return Decimal(str(value)) / (Decimal(10) ** (10 + lot_power))
 
     async def _make_network_check_request(self):
         await self.ultrade_client.ping()
@@ -1345,16 +1423,18 @@ class UltradeExchange(ExchangePyBase):
     async def process_ultrade_order_book(self, order_book: Dict[str, Any]) -> Dict[str, Any]:
         trading_pair = await self.trading_pair_associated_to_exchange_symbol(symbol=order_book["pair"])
 
-        base, quote = trading_pair.split("-")
-
         bids = order_book.get("buy", [])
         asks = order_book.get("sell", [])
         for bid in bids:
-            bid[0] = float(self.from_fixed_point(PRICE_TOKEN, int(bid[0])))
-            bid[1] = float(self.from_fixed_point(base, int(bid[1])))
+            bid[0] = float(self.from_spot_price(
+                bid[0], trading_pair=trading_pair, symbol=order_book["pair"]))
+            bid[1] = float(self.from_spot_size(
+                bid[1], trading_pair=trading_pair, symbol=order_book["pair"]))
         for ask in asks:
-            ask[0] = float(self.from_fixed_point(PRICE_TOKEN, int(ask[0])))
-            ask[1] = float(self.from_fixed_point(base, int(ask[1])))
+            ask[0] = float(self.from_spot_price(
+                ask[0], trading_pair=trading_pair, symbol=order_book["pair"]))
+            ask[1] = float(self.from_spot_size(
+                ask[1], trading_pair=trading_pair, symbol=order_book["pair"]))
 
         order_book["bids"] = bids
         order_book["asks"] = asks
